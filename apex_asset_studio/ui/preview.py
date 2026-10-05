@@ -29,7 +29,7 @@ class ModelPreview(OpenGLFrame):
         self.yaw=-.35; self.pitch=-.05; self.zoom=1.; self._drag=None
         self.pan=np.zeros(2,dtype=np.float32)
         self._background='#16191d'; self._pending=None
-        self._grid='#ff2e88'; self._hud='#00e5ff'; self._scanlines=True
+        self._grid='#ff2e88'; self._hud='#00e5ff'; self._scanlines=True; self._floor='grid'
         self._textures={}; self._new_textures={}; self._texture_key=None
         # Called with the placeholder text to show over the viewport ('' hides it).
         self.message_callback=None
@@ -65,8 +65,9 @@ class ModelPreview(OpenGLFrame):
         GL.glEnable(GL.GL_FRAMEBUFFER_SRGB)
         self.schedule()
 
-    def set_palette(self, background, foreground, muted, grid=None, hud=None, scanlines=True):
+    def set_palette(self, background, foreground, muted, grid=None, hud=None, scanlines=True, floor=None):
         self._background=background; self._scanlines=scanlines
+        if floor: self._floor=floor
         if grid: self._grid=grid
         if hud: self._hud=hud
         self.schedule()
@@ -189,18 +190,68 @@ class ModelPreview(OpenGLFrame):
         GL.glColor3f(*_linear(color)); GL.glVertex2f(-1,-1); GL.glVertex2f(1,-1)
         GL.glColor3f(*_linear(top)); GL.glVertex2f(1,1); GL.glVertex2f(-1,1)
         GL.glEnd()
-        horizon=-.18
-        GL.glBegin(GL.GL_LINES)
-        # receding horizontal lines, denser toward the horizon
-        for i in range(1,15):
-            depth=i/14; y=horizon-(1+horizon)*depth**2.2
-            GL.glColor3f(*tint(.10+.32*depth)); GL.glVertex2f(-1,y); GL.glVertex2f(1,y)
-        # lines converging on the vanishing point
-        for i in range(-12,13):
-            GL.glColor3f(*tint(.10)); GL.glVertex2f(i*.04,horizon)
-            GL.glColor3f(*tint(.42)); GL.glVertex2f(i*.32,-1)
-        GL.glColor3f(*tint(.55)); GL.glVertex2f(-1,horizon); GL.glVertex2f(1,horizon)
-        GL.glEnd()
+        hud=self._rgb(self._hud)
+        def tint2(amount): return _linear([g*amount+c*(1-amount) for g,c in zip(hud,color)])
+        floor=self._floor; horizon=-.18
+        w,h=max(self.winfo_width(),1),max(self.winfo_height(),1); aspect=w/h
+        if floor=='sun':
+            # striped sunset disc sitting on the horizon
+            import math as _m
+            r=.5; cy=horizon
+            for i in range(48):
+                y0=cy+r*i/48; y1=cy+r*(i+1)/48
+                band=int(i/48*9)
+                if band%2==1 and i<30: continue
+                ca=_m.sqrt(max(0,r*r-(y0-cy)**2))/aspect; cb=_m.sqrt(max(0,r*r-(y1-cy)**2))/aspect
+                k=i/48
+                GL.glBegin(GL.GL_QUADS)
+                GL.glColor3f(*_linear([a*(1-k)+b*k for a,b in zip(grid,(1.,.84,.42))]))
+                GL.glVertex2f(-ca,y0);GL.glVertex2f(ca,y0);GL.glVertex2f(cb,y1);GL.glVertex2f(-cb,y1)
+                GL.glEnd()
+        if floor in ('grid','sun'):
+            GL.glBegin(GL.GL_QUADS)
+            GL.glColor3f(*_linear(color)); GL.glVertex2f(-1,-1); GL.glVertex2f(1,-1); GL.glVertex2f(1,horizon); GL.glVertex2f(-1,horizon)
+            GL.glEnd()
+            line=tint2 if floor=='sun' else tint
+            GL.glBegin(GL.GL_LINES)
+            for i in range(1,15):
+                depth=i/14; y=horizon-(1+horizon)*depth**2.2
+                GL.glColor3f(*line(.10+.32*depth)); GL.glVertex2f(-1,y); GL.glVertex2f(1,y)
+            for i in range(-12,13):
+                GL.glColor3f(*line(.10)); GL.glVertex2f(i*.04,horizon)
+                GL.glColor3f(*line(.42)); GL.glVertex2f(i*.32,-1)
+            GL.glColor3f(*line(.55)); GL.glVertex2f(-1,horizon); GL.glVertex2f(1,horizon)
+            GL.glEnd()
+        elif floor=='hex':
+            size=.09; dx=size*1.732; GL.glBegin(GL.GL_LINES)
+            for row in range(-14,15):
+                for col in range(-16,17):
+                    cx=col*dx/aspect+(dx/2/aspect if row%2 else 0); cy=row*size*1.5
+                    shade=tint(.07+.16*max(0,-cy))
+                    GL.glColor3f(*shade)
+                    pts=[(cx+size*_cos/aspect,cy+size*_sin) for _cos,_sin in ((0,1),(.866,.5),(.866,-.5),(0,-1),(-.866,-.5),(-.866,.5))]
+                    for a2,b2 in zip(pts,pts[1:]+pts[:1]): GL.glVertex2f(*a2); GL.glVertex2f(*b2)
+            GL.glEnd()
+        elif floor=='dots':
+            GL.glPointSize(3); GL.glBegin(GL.GL_POINTS)
+            for row in range(-12,13):
+                for col in range(-20,21):
+                    GL.glColor3f(*(tint(.35) if (row+col)%2 else tint2(.35)))
+                    GL.glVertex2f(col*.1/aspect*1.6+(.05 if row%2 else 0),row*.085)
+            GL.glEnd()
+        elif floor=='checker':
+            GL.glBegin(GL.GL_QUADS)
+            rows=8
+            for r in range(rows):
+                y0=horizon-(1+horizon)*(r/rows)**1.6; y1=horizon-(1+horizon)*((r+1)/rows)**1.6
+                n=24
+                for c2 in range(-n//2,n//2):
+                    if (r+c2)%2: continue
+                    sx0=c2/(n/2); sx1=(c2+1)/(n/2)
+                    GL.glColor3f(*tint2(.08+.14*r/rows))
+                    GL.glVertex2f(sx0*(.15+.85*r/rows),y0); GL.glVertex2f(sx1*(.15+.85*r/rows),y0)
+                    GL.glVertex2f(sx1*(.15+.85*(r+1)/rows),y1); GL.glVertex2f(sx0*(.15+.85*(r+1)/rows),y1)
+            GL.glEnd()
         GL.glColor3f(1,1,1)
         GL.glEnable(GL.GL_LIGHTING); GL.glEnable(GL.GL_DEPTH_TEST)
 

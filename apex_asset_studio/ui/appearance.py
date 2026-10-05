@@ -3,24 +3,97 @@ import json
 import re
 from pathlib import Path
 
-SETTINGS_VERSION = 3
+SETTINGS_VERSION = 4
 
-# accent = primary neon (selection, primary actions); accent2 = secondary neon (data, HUD lines).
-PRESETS = {
-    'Cybercore': dict(background='#07060b', surface='#0d0b14', raised='#171224', border='#2b2142',
-                      text='#f1ebff', muted='#8d7fae', accent='#ff2e88', accent2='#00e5ff', viewport='#05040a'),
-    'Unit-02': dict(background='#0a0606', surface='#120b0b', raised='#1f1212', border='#43201b',
-                    text='#fff0e6', muted='#b08a7a', accent='#ff3b1f', accent2='#ffb000', viewport='#070404'),
-    'Unit-01': dict(background='#08060d', surface='#0f0b17', raised='#1a1428', border='#33244d',
-                    text='#efe9ff', muted='#9184b0', accent='#9b5cff', accent2='#a6ff3a', viewport='#060409'),
-    'Ghost': dict(background='#04080d', surface='#08101a', raised='#0f1b2a', border='#1c3047',
-                  text='#e6f6ff', muted='#7d98b0', accent='#2ef2c4', accent2='#4aa8ff', viewport='#03060a'),
+# A style is a full aesthetic: palette, typefaces and decoration ("fx").
+# accent = primary color (selection, main action); accent2 = secondary (data, HUD lines, tags).
+def _F(candidates, size, weight='normal'):
+    return (tuple(candidates), size, weight)
+
+
+_MINCHO = ('Yu Mincho', 'MS Mincho', 'Noto Serif CJK JP')
+_JP = ('Yu Gothic UI', 'Meiryo UI', 'Meiryo', 'Noto Sans CJK JP')
+_COND = ('Bahnschrift SemiBold SemiConden', 'Bahnschrift SemiBold Condensed', 'Bahnschrift SemiBold', 'DejaVu Sans Condensed')
+
+
+def _fontset(ui, head, mono, ui_size=10, head_scale=1.0, mono_size=9, head_weight='normal', title_size=20,
+             display_size=40, jp=_JP, jp_size=8):
+    h = lambda n: max(6, round(n*head_scale))
+    return dict(
+        body=_F(ui, ui_size), small=_F(ui, ui_size-1), strong=_F(head, h(11), head_weight),
+        title=_F(head, title_size, head_weight), brand=_F(head, h(15), head_weight), section=_F(head, h(9), head_weight),
+        nav=_F(head, h(11), head_weight), stat=_F(head, h(24), head_weight), placeholder=_F(head, h(26), head_weight),
+        display=_F(head, display_size, head_weight), mono=_F(mono, mono_size), mono_small=_F(mono, mono_size-1),
+        data=_F(mono, mono_size), jp=_F(jp, jp_size), jp_big=_F(_MINCHO, 30, 'bold'), jp_title=_F(_MINCHO, 13, 'bold'))
+
+
+STYLES = {
+    'Neon Cybercore': dict(
+        blurb='Neon pink and cyan, glitch type, warning stripes, synthwave grid.',
+        colors=dict(background='#07060b', surface='#0d0b14', raised='#171224', border='#2b2142', text='#f1ebff',
+                    muted='#8d7fae', accent='#ff2e88', accent2='#00e5ff', viewport='#05040a'),
+        fonts=_fontset(('Rajdhani Medium', 'Rajdhani', 'Bahnschrift', 'Segoe UI'), ('Rajdhani',) + _COND,
+                       ('Share Tech Mono', 'Cascadia Mono', 'Consolas'), ui_size=11, head_weight='bold', title_size=24, display_size=44, mono_size=10),
+        fx=dict(glitch=True, ornament='stripes', tag='slant', button='chamfer', floor='grid', scanlines=True, upper=True,
+                nav='{n:02d} {LABEL}', signal=('NO SIGNAL', '信号なし'), boot=('SYS.BOOT  //  起動シーケンス', 'SYSTEM READY  //  準備完了'))),
+    'Eva Terminal': dict(
+        blurb='Black and warning orange, tall condensed caps, Mincho kanji, terminal readouts.',
+        colors=dict(background='#050404', surface='#0b0806', raised='#171009', border='#3d2a12', text='#ffe8c2',
+                    muted='#b08d5c', accent='#ff6a00', accent2='#ffc23a', viewport='#040302'),
+        fonts=_fontset(('Rajdhani Medium', 'Rajdhani', 'Bahnschrift', 'Segoe UI'), ('Bebas Neue',) + _COND,
+                       ('VT323', 'Consolas'), ui_size=11, head_scale=1.3, title_size=32, display_size=64, mono_size=13, jp=_MINCHO, jp_size=9),
+        fx=dict(glitch=False, ornament='stripes', tag='box', button='chamfer', floor='hex', scanlines=True, upper=True,
+                nav='{n:02d}  {LABEL}', signal=('PATTERN: NONE', 'パターン不明'), boot=('MAGI-STYLE BOOT  //  起動', 'ALL SYSTEMS NOMINAL  //  正常'))),
+    'Vaporwave': dict(
+        blurb='Purple dusk, hot pink and aqua, retro-futurist type, sunset over the grid.',
+        colors=dict(background='#140a24', surface='#1b0f31', raised='#2a1748', border='#432a6b', text='#fdeaff',
+                    muted='#b89ad8', accent='#ff71ce', accent2='#01cdfe', viewport='#10061f'),
+        fonts=_fontset(('Varela Round', 'Segoe UI'), ('Righteous', 'Segoe UI'), ('VT323', 'Consolas'),
+                       ui_size=10, head_scale=1.0, title_size=22, display_size=40, mono_size=13),
+        fx=dict(shadow=('accent', 2), glitch=False, ornament='sunbars', tag='pill', button='pill', floor='sun', scanlines=True, upper=False,
+                nav='{label}', signal=('ＮＯ ＳＩＧＮＡＬ', 'ようこそ'), boot=('ＷＥＬＣＯＭＥ  //  ようこそ', 'ＲＥＡＤＹ  //  準備完了'))),
+    'Kawaii Pastel': dict(
+        blurb='Soft pink and mint on cream, bubbly rounded type, stars instead of stripes.',
+        colors=dict(background='#fbeefa', surface='#fff8fd', raised='#ffe4f3', border='#f0c6e2', text='#4a2a52',
+                    muted='#9a7aa5', accent='#ff5fa8', accent2='#3cc4ac', viewport='#fde6f5'),
+        fonts=_fontset(('Varela Round', 'Segoe UI'), ('Sniglet ExtraBold', 'Sniglet'), ('Varela Round', 'Consolas'),
+                       ui_size=10, head_weight='bold', head_scale=1.05, title_size=22, display_size=40, mono_size=9),
+        fx=dict(shadow=('accent', 2), glitch=False, ornament='stars', tag='pill', button='pill', floor='dots', scanlines=False, upper=False,
+                nav='{label}', signal=('nothing here yet!', 'まだ何もないよ ♡'), boot=('hello! ♡  //  こんにちは', 'all ready! ✦  //  じゅんび完了'))),
+    'Pixel JRPG': dict(
+        blurb='Classic RPG menu windows, gold cursor, pixel fonts with kana.',
+        colors=dict(background='#060a24', surface='#0b1340', raised='#152060', border='#8f9cf0', text='#ffffff',
+                    muted='#9fa9e8', accent='#ffd23f', accent2='#7df9ff', viewport='#050820'),
+        fonts=_fontset(('DotGothic16', 'MS Gothic'), ('Press Start 2P', 'DotGothic16'), ('VT323', 'DotGothic16'),
+                       ui_size=10, head_scale=.72, title_size=14, display_size=26, mono_size=14, jp=('DotGothic16',) + _JP, jp_size=9),
+        fx=dict(leading=1.15, shadow=('background', 2), glitch=False, ornament='pixels', tag='window', button='pixel', floor='checker', scanlines=True, upper=True,
+                nav='▶ {LABEL}', signal=('SELECT A SKIN', 'そうびを えらんでください'), boot=('NOW LOADING  //  ロード中', 'PRESS START  //  スタート'))),
+    'Mecha HUD': dict(
+        blurb='Gunmetal cockpit, caution yellow and HUD blue, wide technical type, chevrons.',
+        colors=dict(background='#0b0e11', surface='#11161b', raised='#1a2128', border='#2b3640', text='#e9eef2',
+                    muted='#8696a4', accent='#ffcc00', accent2='#3fa9ff', viewport='#080b0e'),
+        fonts=_fontset(('Rajdhani Medium', 'Rajdhani', 'Bahnschrift', 'Segoe UI'), ('Michroma', 'Bahnschrift'),
+                       ('Share Tech Mono', 'Consolas'), ui_size=11, head_scale=.8, title_size=16, display_size=30, mono_size=10),
+        fx=dict(floor_color='accent2', glitch=False, ornament='chevrons', tag='slant', button='chamfer', floor='grid', scanlines=False, upper=True,
+                nav='{LABEL}', signal=('NO TARGET', '目標なし'), boot=('COCKPIT INIT  //  起動', 'LAUNCH READY  //  発進準備完了'))),
 }
-DEFAULT_PRESET = 'Cybercore'
+DEFAULT_STYLE = 'Neon Cybercore'
+PRESETS = {name: style['colors'] for name, style in STYLES.items()}
+DEFAULT_PRESET = DEFAULT_STYLE
+ACTIVE = {'style': DEFAULT_STYLE}
+
+
+def style(name=None):
+    return STYLES.get(name or ACTIVE['style'], STYLES[DEFAULT_STYLE])
+
+
+def fx(): return style()['fx']
+
+
 COLOR_LABELS = (
     ('background', 'Window chrome'), ('surface', 'Panels & tables'), ('raised', 'Buttons & inputs'),
-    ('border', 'Grid lines'), ('text', 'Text'), ('muted', 'Secondary text'), ('accent', 'Primary neon'),
-    ('accent2', 'Secondary neon'), ('viewport', '3D preview background'),
+    ('border', 'Grid lines'), ('text', 'Text'), ('muted', 'Secondary text'), ('accent', 'Main accent'),
+    ('accent2', 'Secondary accent'), ('viewport', '3D preview background'),
 )
 LAYOUTS = ('Classic Columns', 'Preview Focus', 'Stacked Workspace')
 RARITY = {'common': '#a9a3b8', 'rare': '#4cc9f0', 'epic': '#c77dff', 'legendary': '#ffc53d',
@@ -31,20 +104,23 @@ _HEX = re.compile(r'#[0-9a-fA-F]{6}')
 def normalize(value):
     value = value if isinstance(value, dict) else {}
     current = value.get('version') == SETTINGS_VERSION
-    preset = value.get('preset', DEFAULT_PRESET) if current else DEFAULT_PRESET
-    if preset not in PRESETS and preset != 'Custom': preset = DEFAULT_PRESET
-    colors = dict(PRESETS.get(preset, PRESETS[DEFAULT_PRESET]))
+    preset = value.get('preset', DEFAULT_STYLE) if current else DEFAULT_STYLE
+    if preset not in STYLES and preset != 'Custom': preset = DEFAULT_STYLE
+    base = value.get('base', DEFAULT_STYLE) if preset == 'Custom' else preset
+    if base not in STYLES: base = DEFAULT_STYLE
+    colors = dict(STYLES[base]['colors'])
     supplied = value.get('colors', {})
     if preset == 'Custom' and isinstance(supplied, dict):
         for key in colors:
             color = supplied.get(key)
             if isinstance(color, str) and _HEX.fullmatch(color): colors[key] = color.lower()
     layout = value.get('layout', LAYOUTS[0])
-    return dict(version=SETTINGS_VERSION, preset=preset, colors=colors,
+    scan = value.get('scanlines')
+    return dict(version=SETTINGS_VERSION, preset=preset, base=base, colors=colors,
                 layout=layout if layout in LAYOUTS else LAYOUTS[0],
                 mascot_path=value.get('mascot_path', '') if isinstance(value.get('mascot_path', ''), str) else '',
                 show_mascot=value.get('show_mascot', True) is not False,
-                scanlines=value.get('scanlines', True) is not False)
+                scanlines=STYLES[base]['fx']['scanlines'] if scan is None else scan is not False)
 
 
 def load(path):
@@ -77,11 +153,13 @@ def luminance(color):
 
 def tokens(colors):
     """Full token set including derived values."""
-    t = dict(PRESETS[DEFAULT_PRESET]); t.update(colors)
+    t = dict(STYLES[DEFAULT_STYLE]['colors']); t.update(colors)
     t['selection'] = t['accent']
-    t['selection_text'] = '#07060b' if luminance(t['accent']) > .18 else '#ffffff'
+    dark_text = t['background'] if luminance(t['background']) < .1 else t['text']
+    t['selection_text'] = dark_text if luminance(t['accent']) > .18 else '#ffffff'
     t['accent_text'] = t['selection_text']
-    t['accent2_text'] = '#07060b' if luminance(t['accent2']) > .18 else '#ffffff'
+    t['accent2_text'] = dark_text if luminance(t['accent2']) > .18 else '#ffffff'
+    t['light'] = luminance(t['surface']) > .5
     t['hover'] = mix(t['accent2'], t['raised'], .10)
     t['glow'] = mix(t['accent'], t['surface'], .22)
     t['dim2'] = mix(t['accent2'], t['surface'], .45)
@@ -91,33 +169,40 @@ def tokens(colors):
     t['good'] = t['accent2']
     t['viewport_top'] = mix('#ffffff', t['viewport'], .03)
     t['viewport_mid'] = mix('#ffffff', t['viewport'], .018)
+    if t['light']:
+        t['faint'] = mix(t['muted'], t['surface'], .7)
     return t
 
 
 _FONT_CACHE = {}
 
 
-def fonts(app):
-    if _FONT_CACHE: return _FONT_CACHE
+def register_bundled_fonts():
+    """Make the fonts shipped in resources/fonts usable by Tk for this process only (nothing is installed)."""
+    import os
+    folder = Path(__file__).resolve().parents[1] / 'resources' / 'fonts'
+    if os.name != 'nt' or not folder.is_dir(): return
+    try:
+        import ctypes
+        add = ctypes.windll.gdi32.AddFontResourceExW
+        for path in folder.glob('*.ttf'): add(str(path), 0x10, 0)  # FR_PRIVATE
+    except (OSError, AttributeError):
+        pass
+
+
+def fonts(app, name=None):
+    """Font tuples for a style (the active one by default), resolved against installed families."""
+    name = name if name in STYLES else ACTIVE['style']
+    if name in _FONT_CACHE: return _FONT_CACHE[name]
     from tkinter import font
-    families = set(font.families(app))
-    def pick(*names):
-        return next((n for n in names if n in families), names[-1])
-    ui = pick('Bahnschrift', 'Segoe UI Variable Text', 'Segoe UI', 'Noto Sans', 'DejaVu Sans', 'TkDefaultFont')
-    head = pick('Bahnschrift SemiBold SemiConden', 'Bahnschrift SemiBold Condensed', 'Bahnschrift SemiBold',
-                'DejaVu Sans Condensed', ui)
-    head_bold = () if head.startswith('Bahnschrift') else ('bold',)
-    mono = pick('Cascadia Mono', 'Consolas', 'JetBrains Mono', 'DejaVu Sans Mono', 'TkFixedFont')
-    jp = pick('Yu Gothic UI', 'Meiryo UI', 'Meiryo', 'Noto Sans CJK JP', 'MS Gothic', ui)
-    mincho = pick('Yu Mincho', 'MS Mincho', 'Noto Serif CJK JP', jp)
-    _FONT_CACHE.update(
-        body=(ui, 10), small=(ui, 9), strong=(head, 11, *head_bold),
-        title=(head, 20, *head_bold), brand=(head, 15, *head_bold),
-        section=(head, 9, *head_bold), mono=(mono, 9), mono_small=(mono, 8), data=(mono, 9),
-        display=(head, 40, *head_bold), stat=(head, 24, *head_bold), nav=(head, 11, *head_bold),
-        jp=(jp, 8), jp_big=(mincho, 30, 'bold'), jp_title=(mincho, 13, 'bold'), placeholder=(head, 26, *head_bold),
-    )
-    return _FONT_CACHE
+    if '_families' not in _FONT_CACHE: _FONT_CACHE['_families'] = set(font.families(app))
+    families = _FONT_CACHE['_families']
+    resolved = {}
+    for key, (candidates, size, weight) in STYLES[name]['fonts'].items():
+        family = next((c for c in candidates if c in families), 'TkDefaultFont')
+        resolved[key] = (family, size, weight) if weight != 'normal' else (family, size)
+    _FONT_CACHE[name] = resolved
+    return resolved
 
 
 def _png(image):
@@ -183,8 +268,9 @@ def _elements(style, n):
 
 
 def apply(app, value):
-    from tkinter import ttk
+    from tkinter import ttk, font
     import tkinter as tk
+    ACTIVE['style'] = value.get('base') or DEFAULT_STYLE
     c = tokens(value['colors']); f = fonts(app)
     style = ttk.Style(app); style.theme_use('clam')
     _elements(style, _images(app, c))
@@ -280,7 +366,7 @@ def apply(app, value):
 
     # Tables and trees: solid neon selection bar
     for name, bg in (('Treeview', c['surface']), ('Sidebar.Treeview', c['background'])):
-        style.configure(name, background=bg, fieldbackground=bg, foreground=c['text'], rowheight=29,
+        style.configure(name, background=bg, fieldbackground=bg, foreground=c['text'], rowheight=max(28, font.Font(font=f['body']).metrics('linespace') + 12),
                         borderwidth=0, relief='flat', bordercolor=bg, lightcolor=bg, darkcolor=bg, font=f['body'], indent=14)
         style.map(name, background=[('selected', c['accent'])], foreground=[('selected', c['accent_text'])])
         style.layout(name, [('Treeview.treearea', {'sticky': 'nswe'})])
@@ -321,6 +407,7 @@ def apply(app, value):
     def visit(widget):
         if isinstance(widget, tk.Text):
             flush = getattr(widget, 'flush', False)
+            if getattr(widget, 'font_key', None): widget.configure(font=f[widget.font_key])
             widget.configure(background=c['surface'], foreground=c[getattr(widget, 'tone', 'text')],
                              insertbackground=c['accent2'], selectbackground=c['accent'], selectforeground=c['accent_text'],
                              borderwidth=0, highlightthickness=0, relief='flat', padx=0 if flush else 12, pady=0 if flush else 10)
@@ -330,6 +417,6 @@ def apply(app, value):
             widget.configure(background=c['background'])
         for child in widget.winfo_children(): visit(child)
     visit(app)
-    app.preview.set_palette(c['viewport'], c['text'], c['muted'], grid=c['accent'], hud=c['accent2'],
-                            scanlines=value.get('scanlines', True))
+    app.preview.set_palette(c['viewport'], c['text'], c['muted'], grid=c[fx().get('floor_color', 'accent')], hud=c['accent2'],
+                            scanlines=value.get('scanlines', True), floor=fx()['floor'])
     return c

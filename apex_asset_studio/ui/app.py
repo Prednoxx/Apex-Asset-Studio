@@ -42,7 +42,9 @@ class ApexAssetStudioApp(tk.Tk):
         appdata = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".apex_asset_studio")) / "ApexAssetStudio"
         appdata.mkdir(parents=True, exist_ok=True)
         self.appearance_path = (Path(catalog_path).parent if catalog_path else appdata) / 'appearance.json'
+        appearance.register_bundled_fonts()
         self.appearance = appearance.load(self.appearance_path)
+        appearance.ACTIVE['style'] = self.appearance['base']
         splash = StartupSplash(self, self.appearance['colors'], self.appearance['mascot_path'] or None, APP_VERSION) if show_splash else None
         if splash: splash.stage('Opening index…')
         self.catalog = Catalog(catalog_path or appdata / "catalog.sqlite3")
@@ -108,7 +110,7 @@ class ApexAssetStudioApp(tk.Tk):
         header.pack(fill='x')
         self.mascot_label = ttk.Label(header)
         self.mascot_label.pack(side='left', padx=(0, 10))
-        cyber.GlitchText(header, APP_NAME.upper(), font='brand', jp=f'素材工房  //  BUILD {APP_VERSION}').pack(side='left', padx=(0, 24))
+        cyber.GlitchText(header, APP_NAME, font='brand', jp=f'素材工房  //  BUILD {APP_VERSION}').pack(side='left', padx=(0, 24))
         nav = ttk.Frame(header)
         nav.pack(side='left')
         self.scan_btn = ttk.Button(header, text='SCAN LIBRARY', command=self._scan_button_clicked)
@@ -142,9 +144,10 @@ class ApexAssetStudioApp(tk.Tk):
         self.diag_tab = ttk.Frame(self.tabs)
         self.appearance_tab = ttk.Frame(self.tabs)
         self.nav_buttons = {}
-        for tab, text in ((self.simple_tab, '01 LIBRARY'), (self.advanced_tab, '02 EXPLORER'),
-                          (self.diag_tab, '03 DIAGNOSTICS'), (self.appearance_tab, '04 SETTINGS')):
-            self.tabs.add(tab, text=text)
+        self.nav_labels = {}
+        for n, (tab, text) in enumerate(((self.simple_tab, 'Library'), (self.advanced_tab, 'Explorer'),
+                                         (self.diag_tab, 'Diagnostics'), (self.appearance_tab, 'Settings')), start=1):
+            self.tabs.add(tab, text=text); self.nav_labels[str(tab)] = (n, text)
             button = ttk.Button(nav, text=text, style='Nav.TButton', command=lambda t=tab: self._show_page(t))
             button.pack(side='left', padx=(0, 4))
             self.nav_buttons[str(tab)] = button
@@ -161,9 +164,11 @@ class ApexAssetStudioApp(tk.Tk):
         self.tabs.select(tab)
 
     def _sync_nav(self):
-        current = self.tabs.select()
+        current = self.tabs.select(); pattern = appearance.fx()['nav']
         for key, button in self.nav_buttons.items():
-            button.configure(style='NavActive.TButton' if key == current else 'Nav.TButton')
+            n, label = self.nav_labels[key]
+            button.configure(style='NavActive.TButton' if key == current else 'Nav.TButton',
+                             text=pattern.format(n=n, label=label, LABEL=label.upper()))
 
     def _update_game_label(self):
         path = self.game_path.get().strip()
@@ -195,8 +200,8 @@ class ApexAssetStudioApp(tk.Tk):
     def _show_preview_message(self, text):
         if text:
             headline, _, rest = text.partition('\n\n')
-            self.preview_signal.show(rest or headline, 'NO SIGNAL' if rest == '' else headline.upper())
-            self.preview_signal.place(relx=.5, rely=.33, anchor='center')
+            self.preview_signal.show(rest or headline, headline if rest else None)
+            self.preview_signal.place(relx=.5, rely=.17 if appearance.fx()['floor'] == 'sun' else .33, anchor='center')
             self.preview_live.configure(text='○ STANDBY', fg=self.tokens['muted'] if hasattr(self, 'tokens') else '#888888')
         else:
             self.preview_signal.place_forget()
@@ -216,8 +221,11 @@ class ApexAssetStudioApp(tk.Tk):
         self._search_job = self.after(250, self._search_simple)
 
     def _set_inspector(self, title, subtitle=''):
-        self.inspector_title.set(str(title).upper())
-        self.inspector_meta.set(str(subtitle).upper().replace('  ·  ', '  //  '))
+        self._inspector_raw = (title, subtitle)
+        upper = appearance.fx()['upper']
+        self.inspector_title.set(str(title).upper() if upper else str(title))
+        sep = '  //  ' if upper else '  ·  '
+        self.inspector_meta.set((str(subtitle).upper() if upper else str(subtitle)).replace('  ·  ', sep))
 
     def _update_frame_text(self, *_):
         clip = self._animation
@@ -230,26 +238,54 @@ class ApexAssetStudioApp(tk.Tk):
         self._update_frame_text()
 
     def _draw_preset_cards(self):
-        t = self.tokens; f = appearance.fonts(self)
+        """Each card is a miniature of its style: its colors, fonts, ornament, tag and button shape."""
+        t = self.tokens; active = appearance.ACTIVE['style']
         for name, card in self.preset_cards.items():
-            p = appearance.tokens(appearance.PRESETS[name]); chosen = name == self.appearance['preset']
-            card.delete('all')
-            card.configure(background=p['background'], highlightthickness=2,
-                           highlightbackground=t['accent'] if chosen else t['border'], highlightcolor=t['accent'] if chosen else t['border'])
-            card.create_polygon(0, 0, 150, 0, 150, 5, 0, 5, fill=p['accent'], outline='')
-            for x in range(-6, 160, 12):
-                card.create_polygon(x, 5, x+6, 5, x+2, 9, x-4, 9, fill=p['accent'], outline='')
-            card.create_rectangle(10, 18, 58, 22, fill=p['accent2'], outline='')
-            card.create_rectangle(10, 28, 46, 31, fill=p['muted'], outline='')
-            card.create_rectangle(10, 36, 52, 39, fill=p['border'], outline='')
-            card.create_rectangle(68, 16, 140, 50, fill=p['viewport'], outline=p['border'])
-            for i in range(5): card.create_line(68 + i*18, 50, 104, 38, fill=p['dim'])
-            card.create_line(68, 40, 140, 40, fill=p['dim'])
-            card.create_polygon(100, 56, 140, 56, 140, 60, 136, 64, 100, 64, fill=p['accent'], outline='')
-            card.create_text(10, 79, text=name.upper(), anchor='w', fill=p['text'], font=f['nav'])
-            card.create_text(140, 79, text='●' if chosen else '', anchor='e', fill=p['accent2'], font=f['small'])
+            spec = appearance.STYLES[name]; p = appearance.tokens(spec['colors']); f = appearance.fonts(self, name)
+            fx = spec['fx']; chosen = name == self.appearance['preset']
+            appearance.ACTIVE['style'] = name  # draw helpers read the active style
+            try:
+                card.delete('all')
+                card.configure(background=p['background'], highlightbackground=t['accent'] if chosen else t['border'],
+                               highlightcolor=t['accent'] if chosen else t['border'])
+                cyber.draw_ornament(card, p, 0, 0, 304, 6, fx['ornament'])
+                title = name.upper() if fx['upper'] else name
+                cyber.styled_text(card, 12, 14, title, f['strong'], p)
+                card.create_text(12, 40, text=spec['blurb'], anchor='nw', width=170, fill=p['muted'], font=f['small'])
+                # mini viewport
+                card.create_rectangle(192, 16, 290, 96, fill=p['viewport'], outline=p['border'])
+                if fx['floor'] in ('grid', 'sun', 'checker'):
+                    if fx['floor'] == 'sun': card.create_oval(222, 38, 260, 76, fill=p['accent'], outline='')
+                    card.create_rectangle(193, 58, 289, 95, fill=p['viewport'], outline='')
+                    for i in range(7): card.create_line(193 + i*16, 95, 241, 58, fill=p['dim2'] if fx['floor'] == 'sun' else p['dim'])
+                    for y in (64, 72, 84): card.create_line(193, y, 289, y, fill=p['dim2'] if fx['floor'] == 'sun' else p['dim'])
+                elif fx['floor'] == 'hex':
+                    for hx in range(200, 290, 18):
+                        for hy in range(26, 96, 16):
+                            ox = 9 if (hy // 16) % 2 else 0
+                            card.create_polygon(hx+ox, hy-5, hx+ox+5, hy-2, hx+ox+5, hy+3, hx+ox, hy+6, hx+ox-5, hy+3, hx+ox-5, hy-2,
+                                                fill='', outline=p['dim'])
+                elif fx['floor'] == 'dots':
+                    for dx in range(200, 290, 10):
+                        for dy in range(24, 96, 10): card.create_oval(dx, dy, dx+2, dy+2, fill=p['dim'], outline='')
+                card.create_line(194, 18, 194, 26, fill=p['accent2'], width=2); card.create_line(194, 18, 202, 18, fill=p['accent2'], width=2)
+                # selected list row + button
+                card.create_rectangle(12, 112, 180, 128, fill=p['accent'], outline='')
+                card.create_text(18, 120, text='Airship Assassin', anchor='w', fill=p['accent_text'], font=f['small'])
+                if fx['button'] == 'pill':
+                    cyber._rounded(card, 192, 112, 290, 136, fill=p['accent'])
+                elif fx['button'] == 'pixel':
+                    card.create_rectangle(192, 112, 290, 136, fill=p['accent'], outline='')
+                    card.create_rectangle(196, 116, 286, 118, fill=appearance.mix('#ffffff', p['accent'], .45), outline='')
+                else:
+                    card.create_polygon(198, 112, 290, 112, 290, 130, 284, 136, 192, 136, 192, 118, fill=p['accent'], outline='')
+                card.create_text(241, 124, text='EXPORT' if fx['upper'] else 'Export', fill=p['accent_text'], font=f['section'])
+                card.create_text(12, 152, text=('●  ' if chosen else '') + ('IN USE' if chosen else 'Click to use'), anchor='w',
+                                 fill=p['accent2'] if chosen else p['muted'], font=f['section'])
+            finally:
+                appearance.ACTIVE['style'] = active
         custom = self.appearance['preset'] == 'Custom'
-        self.custom_theme_label.configure(text='Using a custom palette. Pick a theme above to switch back.' if custom else '')
+        self.custom_theme_label.configure(text=f"Using custom colors on the {self.appearance['base']} style. Pick a style above to reset them." if custom else '')
 
     def _build_simple(self):
         f = appearance.fonts(self)
@@ -336,7 +372,7 @@ class ApexAssetStudioApp(tk.Tk):
         self.lod_choice.bind('<<ComboboxSelected>>', lambda _e: self._render_model())
 
         self.simple_info = tk.Text(detail, height=3, wrap='word', font=f['small'], state='disabled', cursor='arrow')
-        self.simple_info.flush = True
+        self.simple_info.flush = True; self.simple_info.font_key = 'small'
 
         anim = ttk.Frame(detail, style='Panel.TFrame')
         top = ttk.Frame(anim, style='Panel.TFrame')
@@ -427,9 +463,9 @@ class ApexAssetStudioApp(tk.Tk):
 
         themes = section('Theme')
         self.preset_cards = {}
-        for name in appearance.PRESETS:
-            card = tk.Canvas(themes, width=150, height=92, highlightthickness=2, cursor='hand2', borderwidth=0)
-            card.pack(side='left', padx=(0, 14))
+        for index, name in enumerate(appearance.STYLES):
+            card = tk.Canvas(themes, width=300, height=168, highlightthickness=2, cursor='hand2', borderwidth=0)
+            card.grid(row=index // 3, column=index % 3, padx=(0, 14), pady=(0, 14), sticky='w')
             card.bind('<Button-1>', lambda _e, n=name: self._choose_theme(n))
             self.preset_cards[name] = card
         self.custom_theme_label = ttk.Label(body, text='', style='Muted.TLabel')
@@ -512,7 +548,14 @@ class ApexAssetStudioApp(tk.Tk):
         for label, fg in ((self.preview_hint, c['faint']), (self.preview_cam, c['accent2']),
                           (self.preview_live, c['accent'] if self._model else c['muted'])):
             label.configure(background=appearance.mix('#ffffff', c['viewport'], .03 if label is not self.preview_hint else .0), foreground=fg)
+        for label in (self.preview_hint, self.preview_cam, self.preview_live): label.configure(font=f['mono_small'])
         cyber.refresh(self, c)
+        self._sync_nav()
+        if hasattr(self, '_inspector_raw'): self._set_inspector(*self._inspector_raw)
+        sel = self.simple_tree.selection()
+        if sel and sel[0] in self._simple_sections:
+            label = self.simple_tree.item(sel[0], 'text')
+            self.simple_header_var.set(label.upper() if appearance.fx()['upper'] else label)
         self._draw_preset_cards(); self._apply_layout(); self._load_mascot()
         if save:
             try:
@@ -522,8 +565,10 @@ class ApexAssetStudioApp(tk.Tk):
     def _choose_theme(self, name=None):
         name = name or self.theme_var.get()
         self.theme_var.set(name)
-        self.appearance['preset'] = name
-        self.appearance['colors'] = dict(appearance.PRESETS[name])
+        self.appearance['preset'] = name; self.appearance['base'] = name
+        self.appearance['colors'] = dict(appearance.STYLES[name]['colors'])
+        self.appearance['scanlines'] = appearance.STYLES[name]['fx']['scanlines']
+        if hasattr(self, 'scanlines_var'): self.scanlines_var.set(self.appearance['scanlines'])
         self._sync_color_controls(); self._apply_appearance()
 
     def _sync_color_controls(self):
@@ -652,7 +697,7 @@ class ApexAssetStudioApp(tk.Tk):
         self.advanced_preview_btn = ttk.Button(detail_header, text='Preview model', command=self._preview_advanced, state='disabled')
         self.advanced_preview_btn.pack(side='right', padx=6)
         self.asset_detail = tk.Text(detail_frame, height=8, font=appearance.fonts(self)['mono'], wrap='none', state='disabled')
-        self.asset_detail.flush = True
+        self.asset_detail.flush = True; self.asset_detail.font_key = 'mono'
         self.asset_detail.pack(fill='both', expand=True, pady=(8, 0))
 
         string_top = ttk.Frame(strings_tab, padding=(0, 0, 0, 10))
@@ -705,11 +750,11 @@ class ApexAssetStudioApp(tk.Tk):
         pane.add(log_frame, weight=2)
         self._section(summary_frame, 'Index summary').pack(fill='x')
         self.summary_text = tk.Text(summary_frame, height=14, font=mono, wrap='none', state='disabled')
-        self.summary_text.flush = True
+        self.summary_text.flush = True; self.summary_text.font_key = 'mono'
         self.summary_text.pack(fill='both', expand=True, pady=(8, 0))
         self._section(log_frame, 'Scan log').pack(fill='x')
         self.log_text = tk.Text(log_frame, font=mono, wrap='none')
-        self.log_text.flush = True
+        self.log_text.flush = True; self.log_text.font_key = 'mono'
         self.log_text.pack(fill='both', expand=True, pady=(8, 0))
 
     def _auto_detect(self):
@@ -959,7 +1004,8 @@ class ApexAssetStudioApp(tk.Tk):
         spec = self._simple_sections.get(iid)
         if not spec or self._scanning or self._busy:
             return
-        self.simple_header_var.set(self.simple_tree.item(iid, 'text').upper())
+        label = self.simple_tree.item(iid, 'text')
+        self.simple_header_var.set(label.upper() if appearance.fx()['upper'] else label)
         text = self.simple_search_var.get().strip()
         if spec[0] == 'owner':
             rows = self.catalog.search_cosmetics(text, owner_guid=spec[1])

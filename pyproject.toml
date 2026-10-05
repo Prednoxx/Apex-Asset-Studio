@@ -15,7 +15,7 @@ apex-asset-studio = "apex_asset_studio.ui.app:main"
 aas-diagnostics = "apex_asset_studio.diagnostics:main"
 
 [tool.setuptools.package-data]
-apex_asset_studio = ["resources/*"]
+apex_asset_studio = ["resources/*", "resources/fonts/*"]
 
 [tool.setuptools.packages.find]
 include = ["apex_asset_studio*"]
