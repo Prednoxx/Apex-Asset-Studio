@@ -29,6 +29,7 @@ class ModelPreview(OpenGLFrame):
         self.yaw=-.35; self.pitch=-.05; self.zoom=1.; self._drag=None
         self.pan=np.zeros(2,dtype=np.float32)
         self._background='#16191d'; self._pending=None
+        self._grid='#ff2e88'; self._hud='#00e5ff'; self._scanlines=True
         self._textures={}; self._new_textures={}; self._texture_key=None
         # Called with the placeholder text to show over the viewport ('' hides it).
         self.message_callback=None
@@ -64,8 +65,11 @@ class ModelPreview(OpenGLFrame):
         GL.glEnable(GL.GL_FRAMEBUFFER_SRGB)
         self.schedule()
 
-    def set_palette(self, background, foreground, muted):
-        self._background=background; self.schedule()
+    def set_palette(self, background, foreground, muted, grid=None, hud=None, scanlines=True):
+        self._background=background; self._scanlines=scanlines
+        if grid: self._grid=grid
+        if hud: self._hud=hud
+        self.schedule()
 
     def _message(self, text):
         if self.message_callback: self.message_callback(text)
@@ -171,9 +175,13 @@ class ModelPreview(OpenGLFrame):
         self.pan=pan+np.asarray((event.x-x,y-event.y),dtype=np.float32)*scale
         self.schedule();return 'break'
 
+    def _rgb(self, color): return [v/65535 for v in self.winfo_rgb(color)]
+
     def _draw_backdrop(self, color):
-        """Soft vertical gradient behind the model: slightly lifted at the top, base color at the bottom."""
-        top=[min(1.,v*1.0+.035) for v in color]
+        """Dark gradient with a neon perspective floor grid (synthwave horizon)."""
+        top=[min(1.,v+.03) for v in color]
+        grid=self._rgb(self._grid)
+        def tint(amount): return _linear([g*amount+c*(1-amount) for g,c in zip(grid,color)])
         GL.glMatrixMode(GL.GL_PROJECTION); GL.glLoadIdentity()
         GL.glMatrixMode(GL.GL_MODELVIEW); GL.glLoadIdentity()
         GL.glDisable(GL.GL_LIGHTING); GL.glDisable(GL.GL_DEPTH_TEST); GL.glDisable(GL.GL_TEXTURE_2D)
@@ -181,7 +189,31 @@ class ModelPreview(OpenGLFrame):
         GL.glColor3f(*_linear(color)); GL.glVertex2f(-1,-1); GL.glVertex2f(1,-1)
         GL.glColor3f(*_linear(top)); GL.glVertex2f(1,1); GL.glVertex2f(-1,1)
         GL.glEnd()
+        horizon=-.18
+        GL.glBegin(GL.GL_LINES)
+        # receding horizontal lines, denser toward the horizon
+        for i in range(1,15):
+            depth=i/14; y=horizon-(1+horizon)*depth**2.2
+            GL.glColor3f(*tint(.10+.32*depth)); GL.glVertex2f(-1,y); GL.glVertex2f(1,y)
+        # lines converging on the vanishing point
+        for i in range(-12,13):
+            GL.glColor3f(*tint(.10)); GL.glVertex2f(i*.04,horizon)
+            GL.glColor3f(*tint(.42)); GL.glVertex2f(i*.32,-1)
+        GL.glColor3f(*tint(.55)); GL.glVertex2f(-1,horizon); GL.glVertex2f(1,horizon)
+        GL.glEnd()
         GL.glColor3f(1,1,1)
+        GL.glEnable(GL.GL_LIGHTING); GL.glEnable(GL.GL_DEPTH_TEST)
+
+    def _draw_scanlines(self, w, h):
+        GL.glMatrixMode(GL.GL_PROJECTION); GL.glLoadIdentity(); GL.glOrtho(0,w,0,h,-1,1)
+        GL.glMatrixMode(GL.GL_MODELVIEW); GL.glLoadIdentity()
+        GL.glDisable(GL.GL_LIGHTING); GL.glDisable(GL.GL_DEPTH_TEST); GL.glDisable(GL.GL_TEXTURE_2D)
+        GL.glEnable(GL.GL_BLEND); GL.glBlendFunc(GL.GL_SRC_ALPHA,GL.GL_ONE_MINUS_SRC_ALPHA)
+        GL.glColor4f(0,0,0,.16)
+        GL.glBegin(GL.GL_LINES)
+        for y in range(0,h,3): GL.glVertex2f(0,y+.5); GL.glVertex2f(w,y+.5)
+        GL.glEnd()
+        GL.glDisable(GL.GL_BLEND); GL.glColor4f(1,1,1,1)
         GL.glEnable(GL.GL_LIGHTING); GL.glEnable(GL.GL_DEPTH_TEST)
 
     def redraw(self):
@@ -203,7 +235,10 @@ class ModelPreview(OpenGLFrame):
         w,h=max(self.winfo_width(),1),max(self.winfo_height(),1)
         GL.glViewport(0,0,w,h)
         self._draw_backdrop(color)
-        if not self.has_geometry: return
+        if self.has_geometry: self._draw_model(w,h)
+        if self._scanlines: self._draw_scanlines(w,h)
+
+    def _draw_model(self, w, h):
         extent=self.span/.82/self.zoom/2
         GL.glMatrixMode(GL.GL_PROJECTION); GL.glLoadIdentity()
         GL.glOrtho(-extent*w/min(w,h),extent*w/min(w,h),-extent*h/min(w,h),extent*h/min(w,h),-self.span*10,self.span*10)
