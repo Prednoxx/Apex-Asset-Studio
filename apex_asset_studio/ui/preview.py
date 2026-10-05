@@ -222,6 +222,22 @@ class ModelPreview(OpenGLFrame):
                 GL.glColor3f(*line(.42)); GL.glVertex2f(i*.32,-1)
             GL.glColor3f(*line(.55)); GL.glVertex2f(-1,horizon); GL.glVertex2f(1,horizon)
             GL.glEnd()
+        elif floor=='halftone':
+            # halftone dots swelling toward the lower-left corner plus two soft diagonal light bands
+            GL.glBegin(GL.GL_QUADS)
+            for x0,width,amount in ((-.55,.32,.05),(-.05,.12,.035)):
+                GL.glColor3f(*tint(amount)); GL.glVertex2f(x0,1); GL.glVertex2f(x0+width,1)
+                GL.glVertex2f(x0+width-1.1,-1); GL.glVertex2f(x0-1.1,-1)
+            GL.glEnd()
+            step=.055
+            for size in (1,2,3,4,5,6):
+                GL.glPointSize(size); GL.glBegin(GL.GL_POINTS); GL.glColor3f(*tint(.22+.06*size))
+                for row in range(0,40):
+                    for col in range(0,60):
+                        x=-1+col*step/aspect*1.0+(step/2/aspect if row%2 else 0); y=-1+row*step
+                        strength=max(0.,1.-((x+1)*.42+(y+1)*.62))*7
+                        if int(strength)==size: GL.glVertex2f(x,y)
+                GL.glEnd()
         elif floor=='hex':
             size=.09; dx=size*1.732; GL.glBegin(GL.GL_LINES)
             for row in range(-14,15):

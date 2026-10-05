@@ -77,8 +77,33 @@ STYLES = {
         fx=dict(floor_color='accent2', glitch=False, ornament='chevrons', tag='slant', button='chamfer', floor='grid', scanlines=False, upper=True,
                 nav='{LABEL}', signal=('NO TARGET', '目標なし'), boot=('COCKPIT INIT  //  起動', 'LAUNCH READY  //  発進準備完了'))),
 }
-DEFAULT_STYLE = 'Neon Cybercore'
+_ESPORTS_HEAD = (('Barlow Condensed ExtraBold', 'italic'), ('Barlow Condensed', 'bold italic'), ('Bahnschrift SemiBold Condensed', 'italic'))
+_ESPORTS_FONTS = _fontset(('Barlow Medium', 'Barlow', 'Segoe UI'), _ESPORTS_HEAD, ('Share Tech Mono', 'Consolas'),
+                          ui_size=10, head_scale=1.25, title_size=30, display_size=58, mono_size=10)
+_ESPORTS_FONTS['data'] = _F((('Barlow Condensed SemiBold', 'normal'), ('Barlow Condensed', 'bold')), 11)
+_ESPORTS_FONTS['section'] = _F(_ESPORTS_HEAD, 11)
+
+
+def _esports(blurb, colors):
+    return dict(blurb=blurb, colors=colors, fonts=_ESPORTS_FONTS,
+                fx=dict(glitch=False, ornament='broadcast', tag='skew', button='skew', floor='halftone', scanlines=False,
+                        upper=True, show_jp=False, art_slab=True, leading=.82, nav='{LABEL}',
+                        signal=('STAND BY', 'AWAITING SELECTION'), boot=('BROADCAST  //  PRE-SHOW', 'LIVE  //  READY')))
+
+
+STYLES.update({
+    'Esports Red': _esports('Broadcast graphics: slanted panels, heavy italic caps, red and bone white.',
+        dict(background='#0e1117', surface='#141922', raised='#1d2430', border='#2a3340', text='#f4f1ea',
+             muted='#8a94a4', accent='#ff4655', accent2='#f4f1ea', viewport='#0b0e13')),
+    'Esports Blue': _esports('Tournament broadcast in electric blue with a volt-lime callout color.',
+        dict(background='#090e1a', surface='#0e1526', raised='#162039', border='#22304d', text='#f1f5ff',
+             muted='#8494b4', accent='#2f6bff', accent2='#c8ff2e', viewport='#070b15')),
+    'Esports Gold': _esports('Championship finals: black, white and trophy gold.',
+        dict(background='#0b0b0b', surface='#131313', raised='#1d1d1d', border='#2d2d2d', text='#f6f5f0',
+             muted='#8e8d86', accent='#f5b800', accent2='#ffffff', viewport='#080808')),
+})
 PRESETS = {name: style['colors'] for name, style in STYLES.items()}
+DEFAULT_STYLE = 'Neon Cybercore'
 DEFAULT_PRESET = DEFAULT_STYLE
 ACTIVE = {'style': DEFAULT_STYLE}
 
@@ -88,6 +113,12 @@ def style(name=None):
 
 
 def fx(): return style()['fx']
+
+
+def jp(text):
+    """Japanese labels are dropped for styles that don't use them, keeping any Latin part."""
+    if fx().get('show_jp', True) or not text: return text
+    return ''.join(ch for ch in text if ord(ch) < 0x2000).strip(' /').strip()
 
 
 COLOR_LABELS = (
@@ -199,8 +230,9 @@ def fonts(app, name=None):
     families = _FONT_CACHE['_families']
     resolved = {}
     for key, (candidates, size, weight) in STYLES[name]['fonts'].items():
-        family = next((c for c in candidates if c in families), 'TkDefaultFont')
-        resolved[key] = (family, size, weight) if weight != 'normal' else (family, size)
+        options = [c if isinstance(c, tuple) else (c, weight) for c in candidates]
+        family, chosen = next(((fam, wt) for fam, wt in options if fam in families), ('TkDefaultFont', weight))
+        resolved[key] = (family, size, chosen) if chosen != 'normal' else (family, size)
     _FONT_CACHE[name] = resolved
     return resolved
 

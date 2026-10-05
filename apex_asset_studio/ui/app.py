@@ -549,6 +549,7 @@ class ApexAssetStudioApp(tk.Tk):
                           (self.preview_live, c['accent'] if self._model else c['muted'])):
             label.configure(background=appearance.mix('#ffffff', c['viewport'], .03 if label is not self.preview_hint else .0), foreground=fg)
         for label in (self.preview_hint, self.preview_cam, self.preview_live): label.configure(font=f['mono_small'])
+        self.preview_cam.configure(text=appearance.jp('CAM-01 // 映像') or 'CAM-01')
         cyber.refresh(self, c)
         self._sync_nav()
         if hasattr(self, '_inspector_raw'): self._set_inspector(*self._inspector_raw)

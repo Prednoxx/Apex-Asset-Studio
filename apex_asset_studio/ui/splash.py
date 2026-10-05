@@ -43,16 +43,25 @@ class StartupSplash(tk.Toplevel):
         c.place(x=1, y=1); self.canvas = c
         W, H = width-2, height-2
 
-        grid = appearance.mix(t['border'], t['background'], .45)
-        for gx in range(0, W, 28): c.create_line(gx, 0, gx, H, fill=grid)
-        for gy in range(0, H, 28): c.create_line(0, gy, W, gy, fill=grid)
-        c.create_text(W - 20, H - 70, text='素材工房', anchor='se', fill=appearance.mix(t['accent'], t['background'], .14),
-                      font=(f['jp_big'][0], 64, 'bold'))
         fx = appearance.fx()
+        grid = appearance.mix(t['border'], t['background'], .45)
+        if not fx.get('art_slab'):
+            for gx in range(0, W, 28): c.create_line(gx, 0, gx, H, fill=grid)
+            for gy in range(0, H, 28): c.create_line(0, gy, W, gy, fill=grid)
+        if fx.get('show_jp', True): c.create_text(W - 20, H - 70, text='素材工房', anchor='se', fill=appearance.mix(t['accent'], t['background'], .14),
+                      font=(f['jp_big'][0], 64, 'bold'))
         for y0 in (0, H - 10):
             c.create_rectangle(0, y0, W, y0 + 10, fill=t['background'], outline='')
             cyber.draw_ornament(c, t, 0, y0, W, 10)
 
+        if fx.get('art_slab'):
+            c.create_polygon(90, 10, 330, 10, 230, H - 10, -10, H - 10, fill=t['accent'], outline='')
+            c.create_polygon(340, 10, 356, 10, 256, H - 10, 240, H - 10, fill=t['accent2'], outline='')
+            for i in range(26):
+                for j in range(12):
+                    r = max(0, 3.2 - (i + j) * .16)
+                    if r > .4: c.create_oval(8 + j*14 - r, H - 20 - i*14 - r, 8 + j*14 + r, H - 20 - i*14 + r,
+                                             fill=appearance.mix(t['accent'], t['background'], .55), outline='')
         path = Path(logo_path) if logo_path else Path(__file__).resolve().parents[1]/'resources'/'asuka.webp'
         try:
             self.art = ImageTk.PhotoImage(_neon_art(path, (290, H - 40), t, split=fx['glitch'], scan=fx['scanlines']))
@@ -79,7 +88,7 @@ class StartupSplash(tk.Toplevel):
             sx = x + i * (seg_w + gap)
             self._segments.append(c.create_polygon(sx + 3, sy, sx + seg_w + 3, sy, sx + seg_w, sy + 10, sx, sy + 10,
                                                    fill=t['raised'], outline=''))
-        self.status = c.create_text(x, sy - 22, text='INITIALIZING…', anchor='nw', fill=t['accent'], font=f['mono'])
+        self.status = c.create_text(x, sy - 22, text='INITIALIZING', anchor='nw', fill=t['accent'], font=f['mono'])
         self.lift(); self.update()
 
     def stage(self, message):
@@ -97,7 +106,7 @@ class StartupSplash(tk.Toplevel):
         filled = round(len(self._segments) * min(1, self._step / STAGES))
         for i, seg in enumerate(self._segments):
             c.itemconfigure(seg, fill=t['accent'] if i < filled else t['raised'])
-        c.itemconfigure(self.status, text=self._boot[1] if message == 'Ready' else 'LOADING  //  読み込み中')
+        c.itemconfigure(self.status, text=self._boot[1] if message == 'Ready' else appearance.jp('LOADING  //  読み込み中'))
         self.update()
 
     def finish(self, app):
