@@ -1,48 +1,61 @@
-"""Startup branding using the original user-supplied artwork and native UI shapes."""
+"""Startup splash: the user's artwork beside a quiet wordmark and a slim progress line."""
 import time
 import tkinter as tk
 from pathlib import Path
 from PIL import Image, ImageTk
 
+from . import appearance
+
+STAGES = 5  # number of stage() calls made during startup, for the progress line
+
 
 class StartupSplash(tk.Toplevel):
-    def __init__(self, app):
+    def __init__(self, app, colors=None, logo_path=None, version=''):
         super().__init__(app)
-        self.started = time.monotonic(); self._closed = False
+        self.started = time.monotonic(); self._closed = False; self._step = 0
+        c = appearance.tokens(colors or appearance.PRESETS[appearance.DEFAULT_PRESET])
+        f = appearance.fonts(app)
         self.overrideredirect(True)
-        width, height = 860, 500
+        width, height = 760, 420
         self.geometry(f'{width}x{height}+{max(0,(self.winfo_screenwidth()-width)//2)}+{max(0,(self.winfo_screenheight()-height)//2)}')
-        self.configure(background='white')
-        canvas = tk.Canvas(self, width=width, height=height, background='white', highlightthickness=0)
-        canvas.pack(fill='both', expand=True); self.canvas = canvas
-        # Graphic accents are ordinary UI drawing; the supplied WebP is untouched.
-        canvas.create_polygon(0, 0, 220, 0, 188, 10, 0, 10, fill='#d83b2e', outline='')
-        canvas.create_polygon(790, 0, 860, 0, 860, 155, fill='#efefef', outline='')
-        canvas.create_polygon(805, 0, 829, 0, 860, 69, 860, 119, fill='#d83b2e', outline='')
-        canvas.create_polygon(0, 455, 355, 455, 332, 500, 0, 500, fill='#20232a', outline='')
-        canvas.create_polygon(328, 500, 352, 451, 363, 451, 339, 500, fill='#d83b2e', outline='')
+        self.configure(background=c['border'])
+        canvas = tk.Canvas(self, width=width-2, height=height-2, background=c['surface'], highlightthickness=0)
+        canvas.place(x=1, y=1); self.canvas = canvas
+        art_w = 290
+        canvas.create_rectangle(0, 0, art_w, height, fill=c['background'], outline='')
+        canvas.create_line(art_w, 0, art_w, height, fill=c['border'])
+        path = Path(logo_path) if logo_path else Path(__file__).resolve().parents[1]/'resources'/'asuka.webp'
         try:
-            with Image.open(Path(__file__).resolve().parents[1]/'resources/asuka.webp') as image:
-                image = image.convert('RGBA'); image.thumbnail((350, 440))
+            with Image.open(path) as image:
+                image = image.convert('RGBA'); image.thumbnail((art_w-40, height-40), Image.Resampling.LANCZOS)
                 self.art = ImageTk.PhotoImage(image)
-            canvas.create_image(190, 231, image=self.art)
-        except OSError:
-            canvas.create_text(190, 235, text='APEX ASSET STUDIO', fill='#20232a', font=('Segoe UI Semibold', 16))
-        canvas.create_line(395, 85, 395, 345, fill='#e9e9e9', width=2)
-        canvas.create_text(429, 116, text='APEX ASSET', anchor='nw', fill='#25272d', font=('Segoe UI Semibold', 31))
-        canvas.create_text(429, 163, text='STUDIO', anchor='nw', fill='#d83b2e', font=('Segoe UI Semibold', 44))
-        canvas.create_line(433, 290, 757, 290, fill='#e1e2e5', width=2)
-        self.status = canvas.create_text(433, 313, text='Starting…', anchor='nw', fill='#535761', font=('Segoe UI', 10), width=335)
+            canvas.create_image(art_w//2, height//2, image=self.art)
+        except (OSError, ValueError):
+            pass
+        x = art_w + 44
+        canvas.create_rectangle(x, 92, x+28, 95, fill=c['accent'], outline='')
+        canvas.create_text(x, 112, text='APEX LEGENDS', anchor='nw', fill=c['muted'], font=f['section'])
+        canvas.create_text(x-2, 130, text='Asset Studio', anchor='nw', fill=c['text'], font=f['display'])
+        canvas.create_text(x, 186, text=f'Models, materials and animations · v{version}' if version else
+                           'Models, materials and animations', anchor='nw', fill=c['muted'], font=f['small'])
+        bar_y = height - 70; self._bar = (x, bar_y, width - 48)
+        canvas.create_rectangle(x, bar_y, width-48, bar_y+2, fill=c['raised'], outline='')
+        self._fill = canvas.create_rectangle(x, bar_y, x, bar_y+2, fill=c['accent'], outline='')
+        self.status = canvas.create_text(x, bar_y+14, text='Starting…', anchor='nw', fill=c['muted'],
+                                         font=f['small'], width=width-x-48)
         self.lift(); self.update()
 
     def stage(self, message):
         if self._closed: return
+        self._step += 1
+        x0, y, x1 = self._bar
+        self.canvas.coords(self._fill, x0, y, x0+(x1-x0)*min(1, self._step/STAGES), y+2)
         self.canvas.itemconfigure(self.status, text=message); self.update()
 
     def finish(self, app):
         self.stage('Ready')
         # Keep quick startups readable without claiming background work is running.
-        delay = max(0, int((1.4-(time.monotonic()-self.started))*1000))
+        delay = max(0, int((1.2-(time.monotonic()-self.started))*1000))
         def reveal():
             if self._closed: return
             self._closed = True; self.destroy(); app.deiconify(); app.lift()

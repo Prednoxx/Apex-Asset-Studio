@@ -16,6 +16,10 @@ def pose_matrices(bones, positions, rotations, scales):
     return matrices
 
 
+def _linear(rgb):
+    return [v/12.92 if v<=.04045 else ((v+.055)/1.055)**2.4 for v in rgb]
+
+
 class ModelPreview(OpenGLFrame):
     def __init__(self, master, **kwargs):
         super().__init__(master, **kwargs)
@@ -26,6 +30,8 @@ class ModelPreview(OpenGLFrame):
         self.pan=np.zeros(2,dtype=np.float32)
         self._background='#16191d'; self._pending=None
         self._textures={}; self._new_textures={}; self._texture_key=None
+        # Called with the placeholder text to show over the viewport ('' hides it).
+        self.message_callback=None
         self.bind('<ButtonPress-1>',self._down)
         self.bind('<B1-Motion>',self._move)
         self.bind('<MouseWheel>',self._wheel)
@@ -61,10 +67,14 @@ class ModelPreview(OpenGLFrame):
     def set_palette(self, background, foreground, muted):
         self._background=background; self.schedule()
 
+    def _message(self, text):
+        if self.message_callback: self.message_callback(text)
+
     def clear(self, message=''):
         self.vertices=np.empty((0,3),dtype=np.float32)
         self.faces=np.empty(0,dtype=np.uint32)
         self._new_textures={};self._texture_key=None;self._delete_textures=True
+        self._message(message)
         self.schedule()
 
     def set_model(self, model, lod):
@@ -96,7 +106,7 @@ class ModelPreview(OpenGLFrame):
         for i,bone in enumerate(model.bones): self.inverse_bind[i,:3]=np.asarray(bone.inverse_bind).reshape(3,4)
         self.center=(self.vertices.min(axis=0)+self.vertices.max(axis=0))/2
         self.span=max(float(np.ptp(self.vertices,axis=0).max()),.001)
-        self.zoom=1.; self.schedule()
+        self.zoom=1.; self._message(''); self.schedule()
 
     def set_textures(self, textures):
         if self._new_textures is None: self._new_textures={}
@@ -161,6 +171,19 @@ class ModelPreview(OpenGLFrame):
         self.pan=pan+np.asarray((event.x-x,y-event.y),dtype=np.float32)*scale
         self.schedule();return 'break'
 
+    def _draw_backdrop(self, color):
+        """Soft vertical gradient behind the model: slightly lifted at the top, base color at the bottom."""
+        top=[min(1.,v*1.0+.035) for v in color]
+        GL.glMatrixMode(GL.GL_PROJECTION); GL.glLoadIdentity()
+        GL.glMatrixMode(GL.GL_MODELVIEW); GL.glLoadIdentity()
+        GL.glDisable(GL.GL_LIGHTING); GL.glDisable(GL.GL_DEPTH_TEST); GL.glDisable(GL.GL_TEXTURE_2D)
+        GL.glBegin(GL.GL_QUADS)
+        GL.glColor3f(*_linear(color)); GL.glVertex2f(-1,-1); GL.glVertex2f(1,-1)
+        GL.glColor3f(*_linear(top)); GL.glVertex2f(1,1); GL.glVertex2f(-1,1)
+        GL.glEnd()
+        GL.glColor3f(1,1,1)
+        GL.glEnable(GL.GL_LIGHTING); GL.glEnable(GL.GL_DEPTH_TEST)
+
     def redraw(self):
         if getattr(self,'_delete_textures',False):
             if self._textures: GL.glDeleteTextures(list(self._textures.values()))
@@ -174,13 +197,13 @@ class ModelPreview(OpenGLFrame):
                 GL.glTexParameteri(GL.GL_TEXTURE_2D,GL.GL_TEXTURE_MAG_FILTER,GL.GL_LINEAR)
                 GL.glTexImage2D(GL.GL_TEXTURE_2D,0,GL.GL_SRGB8_ALPHA8 if srgb else GL.GL_RGBA8,width,height,0,GL.GL_RGBA,GL.GL_UNSIGNED_BYTE,pixels)
             self._new_textures=None
-        color=self.winfo_rgb(self._background)
-        color=[v/65535 for v in color]
-        GL.glClearColor(*(v/12.92 if v<=.04045 else ((v+.055)/1.055)**2.4 for v in color),1)
+        color=[v/65535 for v in self.winfo_rgb(self._background)]
+        GL.glClearColor(*_linear(color),1)
         GL.glClear(GL.GL_COLOR_BUFFER_BIT|GL.GL_DEPTH_BUFFER_BIT)
-        if not self.has_geometry: return
         w,h=max(self.winfo_width(),1),max(self.winfo_height(),1)
         GL.glViewport(0,0,w,h)
+        self._draw_backdrop(color)
+        if not self.has_geometry: return
         extent=self.span/.82/self.zoom/2
         GL.glMatrixMode(GL.GL_PROJECTION); GL.glLoadIdentity()
         GL.glOrtho(-extent*w/min(w,h),extent*w/min(w,h),-extent*h/min(w,h),extent*h/min(w,h),-self.span*10,self.span*10)

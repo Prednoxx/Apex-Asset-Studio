@@ -34,15 +34,15 @@ class ApexAssetStudioApp(tk.Tk):
     def __init__(self, catalog_path=None, show_splash=True):
         super().__init__()
         self.withdraw()
-        splash = StartupSplash(self) if show_splash else None
-        self.title(f"{APP_NAME} — {APP_VERSION}")
-        self.geometry("1280x800")
-        self.minsize(1000, 650)
+        self.title(APP_NAME)
+        self.geometry("1360x840")
+        self.minsize(1040, 660)
         self.option_add("*tearOff", False)
         appdata = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".apex_asset_studio")) / "ApexAssetStudio"
         appdata.mkdir(parents=True, exist_ok=True)
         self.appearance_path = (Path(catalog_path).parent if catalog_path else appdata) / 'appearance.json'
         self.appearance = appearance.load(self.appearance_path)
+        splash = StartupSplash(self, self.appearance['colors'], self.appearance['mascot_path'] or None, APP_VERSION) if show_splash else None
         if splash: splash.stage('Opening index…')
         self.catalog = Catalog(catalog_path or appdata / "catalog.sqlite3")
 
@@ -52,7 +52,12 @@ class ApexAssetStudioApp(tk.Tk):
         self.type_filter_var = tk.StringVar(value="All types")
         self.status_var = tk.StringVar(value="Ready")
         self.progress_var = tk.DoubleVar(value=0)
-        self.simple_header_var = tk.StringVar(value="Assets")
+        self.simple_header_var = tk.StringVar(value="Library")
+        self.list_count_var = tk.StringVar(value="")
+        self.inspector_title = tk.StringVar(value="Nothing selected")
+        self.inspector_meta = tk.StringVar(value="")
+        self.frame_text = tk.StringVar(value="")
+        self.animation_display = tk.StringVar(value="")
         self.advanced_count_var = tk.StringVar(value="")
         self.simple_search_var = tk.StringVar()
         self.model_choice_var = tk.StringVar()
@@ -72,6 +77,8 @@ class ApexAssetStudioApp(tk.Tk):
         self.animation_name = tk.StringVar()
         self.frame_var = tk.DoubleVar(value=0)
         self.include_animation = tk.BooleanVar(value=True)
+        self.animation_name.trace_add('write', self._update_animation_display)
+        self.frame_var.trace_add('write', self._update_frame_text)
         self._animation_picker=None
         self._preview_pixels={};self._preview_cache=OrderedDict()
 
@@ -84,6 +91,7 @@ class ApexAssetStudioApp(tk.Tk):
         if splash: splash.stage('Loading settings…')
         self._build_ui()
         self._apply_appearance(save=False)
+        self._update_animation_display()
         self.after(100, self._poll_events)
         if splash: splash.stage('Detecting Apex…')
         self._auto_detect()
@@ -92,174 +100,343 @@ class ApexAssetStudioApp(tk.Tk):
         if splash: splash.finish(self)
         else: self.deiconify()
 
+    # ------------------------------------------------------------------ shell
     def _build_ui(self):
-        brand = ttk.Frame(self, padding=(8, 4))
-        brand.pack(fill='x')
-        self.mascot_label = ttk.Label(brand)
-        self.mascot_label.pack(side='left', padx=(0, 8))
-        ttk.Label(brand, text=APP_NAME, style='Accent.TLabel').pack(side='left')
-        ttk.Button(brand, text='Appearance…', command=lambda: self.tabs.select(self.appearance_tab)).pack(side='right')
-        toolbar = ttk.Frame(self, padding=(8, 7))
-        toolbar.pack(fill="x")
-        ttk.Label(toolbar, text="Apex:").pack(side="left")
-        self.path_entry = ttk.Entry(toolbar, textvariable=self.game_path)
-        self.path_entry.pack(side="left", fill="x", expand=True, padx=(6, 6))
-        self.detect_btn = ttk.Button(toolbar, text="Detect", command=self._auto_detect)
-        self.detect_btn.pack(side="left", padx=2)
-        self.browse_btn = ttk.Button(toolbar, text="Browse…", command=self._browse_game)
-        self.browse_btn.pack(side="left", padx=2)
-        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=8)
-        self.scan_btn = ttk.Button(toolbar, text="Scan Library", command=self._scan_button_clicked)
-        self.scan_btn.pack(side="left", padx=2)
+        header = ttk.Frame(self, padding=(14, 9, 14, 9))
+        header.pack(fill='x')
+        self.mascot_label = ttk.Label(header)
+        self.mascot_label.pack(side='left', padx=(0, 10))
+        ttk.Label(header, text=APP_NAME, style='Brand.TLabel').pack(side='left')
+        ttk.Label(header, text=f'v{APP_VERSION}', style='Version.TLabel').pack(side='left', padx=(8, 26), pady=(3, 0))
+        nav = ttk.Frame(header)
+        nav.pack(side='left')
+        self.scan_btn = ttk.Button(header, text='Scan library', command=self._scan_button_clicked)
+        self.scan_btn.pack(side='right')
+        game = ttk.Frame(header)
+        game.pack(side='right', padx=(0, 14))
+        self.game_dot = ttk.Label(game, text='●', style='Dot.TLabel', cursor='hand2')
+        self.game_dot.pack(side='left', padx=(0, 6))
+        self.game_label = ttk.Label(game, style='Path.TLabel', cursor='hand2')
+        self.game_label.pack(side='left')
+        for widget in (self.game_dot, self.game_label):
+            widget.bind('<Button-1>', lambda _e: self._show_page(self.appearance_tab))
+        self.game_path.trace_add('write', lambda *_: self._update_game_label())
+        ttk.Frame(self, style='Hairline.TFrame', height=1).pack(fill='x')
 
-        self.tabs = ttk.Notebook(self)
-        self.tabs.pack(fill="both", expand=True, padx=8, pady=(0, 6))
+        status = ttk.Frame(self, padding=(14, 5, 14, 6))
+        status.pack(side='bottom', fill='x')
+        ttk.Label(status, textvariable=self.status_var, style='Status.TLabel').pack(side='left')
+        self.progress = ttk.Progressbar(status, variable=self.progress_var, maximum=100, length=260)
+        self._status_frame = status
+        ttk.Frame(self, style='Hairline.TFrame', height=1).pack(side='bottom', fill='x')
+
+        self.tabs = ttk.Notebook(self, style='Pages.TNotebook')
+        self.tabs.pack(fill='both', expand=True)
         self.simple_tab = ttk.Frame(self.tabs)
         self.advanced_tab = ttk.Frame(self.tabs)
         self.diag_tab = ttk.Frame(self.tabs)
         self.appearance_tab = ttk.Frame(self.tabs)
-        self.tabs.add(self.simple_tab, text="Simple View")
-        self.tabs.add(self.advanced_tab, text="Advanced View")
-        self.tabs.add(self.diag_tab, text="Diagnostics")
-        self.tabs.add(self.appearance_tab, text="Appearance")
+        self.nav_buttons = {}
+        for tab, text in ((self.simple_tab, 'Library'), (self.advanced_tab, 'Explorer'),
+                          (self.diag_tab, 'Diagnostics'), (self.appearance_tab, 'Settings')):
+            self.tabs.add(tab, text=text)
+            button = ttk.Button(nav, text=text, style='Nav.TButton', command=lambda t=tab: self._show_page(t))
+            button.pack(side='left', padx=(0, 2))
+            self.nav_buttons[str(tab)] = button
+        self.tabs.bind('<<NotebookTabChanged>>', lambda _e: self._sync_nav())
         self._build_simple()
         self._build_advanced()
         self._build_diag()
         self._build_appearance()
+        self._sync_nav()
+        self._update_game_label()
 
-        status = ttk.Frame(self, padding=(8, 4))
-        status.pack(fill="x")
-        ttk.Label(status, textvariable=self.status_var, style="Status.TLabel").pack(side="left")
-        self.progress = ttk.Progressbar(status, variable=self.progress_var, maximum=100, length=300)
-        self._status_frame = status
+    # ------------------------------------------------------------------ library page
+    def _show_page(self, tab):
+        self.tabs.select(tab)
+
+    def _sync_nav(self):
+        current = self.tabs.select()
+        for key, button in self.nav_buttons.items():
+            button.configure(style='NavActive.TButton' if key == current else 'Nav.TButton')
+
+    def _update_game_label(self):
+        path = self.game_path.get().strip()
+        found = bool(path) and Path(path).exists()
+        self.game_label.configure(text='Apex Legends' if found else 'Set Apex folder')
+        self.game_dot.configure(style='Dot.TLabel' if found else 'DotOff.TLabel')
+
+    def _placeholder(self, entry, variable, text):
+        """Muted hint text inside an empty entry."""
+        hint = ttk.Label(entry, text=text, style='Placeholder.TLabel', cursor='xterm')
+        def refresh(*_):
+            if variable.get() or self.focus_get() is entry: hint.place_forget()
+            else: hint.place(x=9, rely=.5, anchor='w')
+        hint.bind('<Button-1>', lambda _e: entry.focus_set())
+        entry.bind('<FocusIn>', refresh, add='+'); entry.bind('<FocusOut>', refresh, add='+')
+        variable.trace_add('write', refresh)
+        self.after_idle(refresh)
+
+    def _section(self, parent, text, style='Section.Panel.TLabel'):
+        label = ttk.Label(parent, text=text.upper(), style=style)
+        return label
+
+    def _show_preview_message(self, text):
+        if text:
+            self.preview_message.configure(text=text)
+            self.preview_message.place(relx=.5, rely=.5, anchor='center')
+        else:
+            self.preview_message.place_forget()
+
+    def _debounce_search(self):
+        if getattr(self, '_search_job', None): self.after_cancel(self._search_job)
+        self._search_job = self.after(250, self._search_simple)
+
+    def _set_inspector(self, title, subtitle=''):
+        self.inspector_title.set(title); self.inspector_meta.set(subtitle)
+
+    def _update_frame_text(self, *_):
+        clip = self._animation
+        if clip is None: self.frame_text.set('')
+        else: self.frame_text.set(f'{int(self.frame_var.get())+1:,} / {clip["frames"]:,}')
+
+    def _update_animation_display(self, *_):
+        name = self.animation_name.get()
+        self.animation_display.set(name or 'Bind pose. Browse animations to pick a clip.')
+        self._update_frame_text()
+
+    def _draw_preset_cards(self):
+        t = self.tokens
+        for name, card in self.preset_cards.items():
+            p = appearance.tokens(appearance.PRESETS[name])
+            card.delete('all')
+            card.configure(background=p['surface'], highlightthickness=2,
+                           highlightbackground=t['accent'] if name == self.appearance['preset'] else t['border'],
+                           highlightcolor=t['accent'] if name == self.appearance['preset'] else t['border'])
+            card.create_rectangle(0, 0, 44, 66, fill=p['background'], outline='')
+            card.create_rectangle(10, 14, 34, 18, fill=p['muted'], outline='')
+            card.create_rectangle(10, 24, 30, 28, fill=p['border'], outline='')
+            card.create_rectangle(10, 34, 32, 38, fill=p['border'], outline='')
+            card.create_rectangle(56, 12, 140, 46, fill=p['viewport'], outline='')
+            card.create_rectangle(98, 52, 140, 60, fill=p['accent'], outline='')
+            card.create_rectangle(56, 52, 90, 60, fill=p['raised'], outline='')
+            card.create_rectangle(0, 66, 160, 100, fill=p['raised'], outline='')
+            card.create_text(10, 79, text=name, anchor='w', fill=p['text'], font=appearance.fonts(self)['strong'])
+        custom = self.appearance['preset'] == 'Custom'
+        self.custom_theme_label.configure(text='Using a custom palette. Pick a theme above to switch back.' if custom else '')
 
     def _build_simple(self):
-        pane = ttk.Frame(self.simple_tab)
-        pane.pack(fill="both", expand=True)
+        f = appearance.fonts(self)
+        pane = ttk.Frame(self.simple_tab, style='Hairline.TFrame')
+        pane.pack(fill='both', expand=True)
         self.workspace = pane
-        nav = ttk.Frame(pane, padding=6)
-        center = ttk.Frame(pane, padding=6)
-        detail = ttk.Frame(pane, padding=6)
+        nav = ttk.Frame(pane, padding=(8, 16, 4, 10))
+        center = ttk.Frame(pane, style='Panel.TFrame', padding=(18, 16, 10, 10))
+        detail = ttk.Frame(pane, style='Panel.TFrame', padding=(18, 16, 18, 16))
         self.workspace_panels = nav, center, detail
 
-        ttk.Label(nav, text="Library", style="Title.TLabel").pack(anchor="w", pady=(0, 6))
-        nav_body = ttk.Frame(nav); nav_body.pack(fill='both',expand=True)
-        self.simple_tree = ttk.Treeview(nav_body, show="tree", selectmode="browse")
-        self.simple_tree.pack(side='left',fill="both", expand=True)
-        nav_scroll = ttk.Scrollbar(nav_body,orient='vertical',command=self.simple_tree.yview)
-        nav_scroll.pack(side='right',fill='y');self.simple_tree.configure(yscrollcommand=nav_scroll.set)
-        self.simple_tree.bind("<<TreeviewSelect>>", self._simple_section_selected)
+        # Sidebar: categories and owners with right-aligned counts
+        self._section(nav, 'Library', 'Section.TLabel').pack(anchor='w', padx=(12, 0), pady=(0, 8))
+        nav_body = ttk.Frame(nav)
+        nav_body.pack(fill='both', expand=True)
+        self.simple_tree = ttk.Treeview(nav_body, columns=('count',), show='tree', selectmode='browse', style='Sidebar.Treeview')
+        self.simple_tree.column('#0', width=150, minwidth=120, stretch=True)
+        self.simple_tree.column('count', width=58, minwidth=40, anchor='e', stretch=False)
+        self.simple_tree.pack(side='left', fill='both', expand=True)
+        nav_scroll = ttk.Scrollbar(nav_body, orient='vertical', command=self.simple_tree.yview, style='Sidebar.Vertical.TScrollbar')
+        nav_scroll.pack(side='right', fill='y')
+        self.simple_tree.configure(yscrollcommand=nav_scroll.set)
+        self.simple_tree.bind('<<TreeviewSelect>>', self._simple_section_selected)
 
-        header = ttk.Frame(center)
-        header.pack(fill="x")
-        ttk.Label(header, textvariable=self.simple_header_var, style="Title.TLabel").pack(side="left")
+        # Item list
+        header = ttk.Frame(center, style='Panel.TFrame')
+        header.pack(fill='x', padx=(0, 8))
+        ttk.Label(header, textvariable=self.simple_header_var, style='Title.Panel.TLabel').pack(side='left')
+        ttk.Label(header, textvariable=self.list_count_var, style='Muted.Panel.TLabel').pack(side='left', padx=(10, 0), pady=(7, 0))
+        search = ttk.Frame(center, style='Panel.TFrame')
+        search.pack(fill='x', pady=(12, 10), padx=(0, 8))
+        entry = ttk.Entry(search, textvariable=self.simple_search_var)
+        entry.pack(fill='x')
+        entry.bind('<Return>', lambda _e: self._search_simple())
+        entry.bind('<Escape>', lambda _e: self.simple_search_var.set(''))
+        self._placeholder(entry, self.simple_search_var, 'Search this list')
+        self.simple_search_var.trace_add('write', lambda *_: self._debounce_search())
+        assets_body = ttk.Frame(center, style='Panel.TFrame')
+        assets_body.pack(fill='both', expand=True)
+        cols = ('name', 'quality', 'state')
+        self.simple_assets = ttk.Treeview(assets_body, columns=cols, show='headings', selectmode='browse')
+        for column, title, width, stretch in (('name', 'NAME', 140, True), ('quality', 'RARITY', 96, False), ('state', 'MODEL', 104, False)):
+            self.simple_assets.heading(column, text=title, anchor='w')
+            self.simple_assets.column(column, width=width, minwidth=60, stretch=stretch, anchor='w')
+        self.simple_assets.pack(side='left', fill='both', expand=True)
+        assets_scroll = ttk.Scrollbar(assets_body, orient='vertical', command=self.simple_assets.yview)
+        assets_scroll.pack(side='right', fill='y', padx=(4, 0))
+        self.simple_assets.configure(yscrollcommand=assets_scroll.set)
+        self.simple_assets.bind('<<TreeviewSelect>>', self._simple_asset_selected)
 
-        search = ttk.Frame(center)
-        search.pack(fill='x',pady=(6,0))
-        entry = ttk.Entry(search,textvariable=self.simple_search_var)
-        entry.pack(side='left',fill='x',expand=True)
-        entry.bind('<Return>',lambda e:self._search_simple())
-        ttk.Button(search,text='Search',command=self._search_simple).pack(side='left',padx=(4,0))
-        cols = ("name", "quality", "state")
-        assets_body = ttk.Frame(center);assets_body.pack(fill='both',expand=True,pady=(7,0))
-        self.simple_assets = ttk.Treeview(assets_body, columns=cols, show="headings", selectmode="browse")
-        for column,title,width in (('name','Name',240),('quality','Quality / Type',100),('state','Resolution',155)):
-            self.simple_assets.heading(column,text=title)
-            self.simple_assets.column(column,width=width,stretch=column=='name')
-        self.simple_assets.pack(side='left',fill="both", expand=True)
-        assets_scroll = ttk.Scrollbar(assets_body,orient='vertical',command=self.simple_assets.yview)
-        assets_scroll.pack(side='right',fill='y');self.simple_assets.configure(yscrollcommand=assets_scroll.set)
-        self.simple_assets.bind("<<TreeviewSelect>>", self._simple_asset_selected)
-        assets_xscroll = ttk.Scrollbar(center, orient='horizontal', command=self.simple_assets.xview)
-        assets_xscroll.pack(fill='x'); self.simple_assets.configure(xscrollcommand=assets_xscroll.set)
+        # Inspector
+        head = ttk.Frame(detail, style='Panel.TFrame')
+        titles = ttk.Frame(head, style='Panel.TFrame')
+        titles.pack(side='left', fill='x', expand=True)
+        ttk.Label(titles, textvariable=self.inspector_title, style='Title.Panel.TLabel', width=1).pack(fill='x')
+        ttk.Label(titles, textvariable=self.inspector_meta, style='Muted.Panel.TLabel', width=1).pack(fill='x', pady=(3, 0))
+        ttk.Button(head, text='Reset view', style='Ghost.Panel.TButton', command=lambda: self.preview.reset_view()).pack(side='right', anchor='n')
 
-        preview_header=ttk.Frame(detail)
-        ttk.Label(preview_header,text='Preview',style='Title.TLabel').pack(side='left')
-        ttk.Button(preview_header,text='Reset view',command=lambda:self.preview.reset_view()).pack(side='right')
-        self.preview = ModelPreview(detail, height=300)
-        self.preview.pack(fill="both", expand=True, pady=(6, 6))
-        model_bar = ttk.Frame(detail); model_bar.pack(fill='x')
-        self.model_choice = ttk.Combobox(model_bar,textvariable=self.model_choice_var,state='disabled',width=20)
-        self.model_choice.pack(side='left',fill='x',expand=True)
-        self.model_choice.bind('<<ComboboxSelected>>',lambda e:self._load_cosmetic_model())
-        self.lod_choice = ttk.Combobox(model_bar,textvariable=self.lod_var,state='disabled',width=8)
-        self.lod_choice.pack(side='left',padx=(4,0))
-        self.lod_choice.bind('<<ComboboxSelected>>',lambda e:self._render_model())
-        self.simple_info = tk.Text(detail, height=6, wrap="word", font=("Segoe UI", 9), state="disabled")
-        self.simple_info.pack(fill="x")
 
-        actions = ttk.Frame(detail)
-        actions.pack(fill="x", pady=(6, 0))
-        self.open_source_btn = ttk.Button(actions, text="Open Container Folder", command=lambda: self._open_selected_container("simple"))
-        self.open_source_btn.pack(side="left")
-        self.open_source_btn.state(["disabled"])
-        self.animations_btn = ttk.Button(actions,text='Animations…',command=self._show_declared_animations,state='disabled')
-        self.animations_btn.pack(side='left',padx=(4,0))
-        playback=ttk.Frame(detail)
-        ttk.Label(playback,textvariable=self.animation_name).pack(fill='x')
-        self.play_btn=ttk.Button(playback,text='Play',command=self._toggle_animation,state='disabled')
+        viewport = ttk.Frame(detail, style='Hairline.TFrame', padding=1)
+        self.preview = ModelPreview(viewport, height=300)
+        self.preview.pack(fill='both', expand=True)
+        self.preview_message = tk.Label(viewport, text='', justify='center', borderwidth=0, font=f['body'])
+        self.preview.message_callback = self._show_preview_message
+        self.preview_hint = tk.Label(viewport, text='Drag to orbit  ·  Shift or right-drag to pan  ·  Scroll to zoom',
+                                     borderwidth=0, font=f['small'])
+        self.preview_hint.place(x=12, rely=1, y=-10, anchor='sw')
+
+        model_bar = ttk.Frame(detail, style='Panel.TFrame')
+        ttk.Label(model_bar, text='Model', style='Muted.Panel.TLabel').pack(side='left', padx=(0, 8))
+        self.model_choice = ttk.Combobox(model_bar, textvariable=self.model_choice_var, state='disabled', width=20)
+        self.model_choice.pack(side='left', fill='x', expand=True)
+        self.model_choice.bind('<<ComboboxSelected>>', lambda _e: self._load_cosmetic_model())
+        ttk.Label(model_bar, text='LOD', style='Muted.Panel.TLabel').pack(side='left', padx=(16, 8))
+        self.lod_choice = ttk.Combobox(model_bar, textvariable=self.lod_var, state='disabled', width=7)
+        self.lod_choice.pack(side='left')
+        self.lod_choice.bind('<<ComboboxSelected>>', lambda _e: self._render_model())
+
+        self.simple_info = tk.Text(detail, height=3, wrap='word', font=f['small'], state='disabled', cursor='arrow')
+        self.simple_info.flush = True
+
+        anim = ttk.Frame(detail, style='Panel.TFrame')
+        top = ttk.Frame(anim, style='Panel.TFrame')
+        top.pack(fill='x')
+        self._section(top, 'Animation').pack(side='left')
+        self.animation_export_btn = ttk.Button(top, text='Export animation…', style='Ghost.Panel.TButton',
+                                               command=self._export_animation, state='disabled')
+        self.animation_export_btn.pack(side='right')
+        self.animations_btn = ttk.Button(top, text='Browse animations…', style='Ghost.Panel.TButton',
+                                         command=self._show_declared_animations, state='disabled')
+        self.animations_btn.pack(side='right', padx=(0, 2))
+        ttk.Label(anim, textvariable=self.animation_display, style='Panel.TLabel', width=1).pack(fill='x', pady=(4, 6))
+        transport = ttk.Frame(anim, style='Panel.TFrame')
+        transport.pack(fill='x')
+        self.play_btn = ttk.Button(transport, text='Play', width=6, command=self._toggle_animation, state='disabled')
         self.play_btn.pack(side='left')
-        self.frame_slider=ttk.Scale(playback,variable=self.frame_var,command=self._seek_animation,state='disabled')
-        self.frame_slider.pack(side='left',fill='x',expand=True,padx=4)
-        self.animation_export_btn=ttk.Button(playback,text='Export animation…',command=self._export_animation,state='disabled')
-        self.animation_export_btn.pack(side='left')
-        export_bar = ttk.Frame(detail); export_bar.pack(fill='x',pady=(6,0))
-        self.export_btn = ttk.Button(export_bar,text='Export model…',command=self._export_model,state='disabled',style='Accent.TButton')
-        self.export_btn.pack(side='left')
-        self.all_lods_check = ttk.Checkbutton(export_bar,text='All LODs',variable=self.all_lods_var)
-        self.all_lods_check.pack(side='left',padx=6)
-        self.include_animation_check=ttk.Checkbutton(export_bar,text='Include animation',variable=self.include_animation,state='disabled')
-        self.include_animation_check.pack(side='left')
-        folder = ttk.Frame(detail);folder.pack(fill='x',pady=(4,0))
-        self.export_folder_entry = ttk.Entry(folder,textvariable=self.export_path_var)
-        self.export_folder_entry.pack(side='left',fill='x',expand=True)
-        self.export_folder_btn = ttk.Button(folder,text='Folder…',command=self._choose_export_folder)
-        self.export_folder_btn.pack(side='left',padx=4)
-        # Give the preview the remaining space after reserving room for actions.
-        # Packing the preview first can clip export controls in compact layouts.
-        for widget in detail.winfo_children(): widget.pack_forget()
-        for row, widget in enumerate(detail.winfo_children()):
-            widget.grid(row=row, column=0, sticky='nsew', pady=(3, 0))
-        detail.columnconfigure(0, weight=1); detail.rowconfigure(1, weight=1)
+        ttk.Label(transport, textvariable=self.frame_text, style='Small.Panel.TLabel', width=12, anchor='e').pack(side='right')
+        self.frame_slider = ttk.Scale(transport, variable=self.frame_var, command=self._seek_animation, state='disabled',
+                                      style='Panel.Horizontal.TScale')
+        self.frame_slider.pack(side='left', fill='x', expand=True, padx=(12, 8))
 
+        export = ttk.Frame(detail, style='Panel.TFrame')
+        export_top = ttk.Frame(export, style='Panel.TFrame')
+        export_top.pack(fill='x')
+        self._section(export_top, 'Export').pack(side='left')
+        self.open_source_btn = ttk.Button(export_top, text='Open RPak folder', style='Ghost.Panel.TButton',
+                                          command=lambda: self._open_selected_container('simple'))
+        self.open_source_btn.pack(side='right')
+        self.open_source_btn.state(['disabled'])
+        folder = ttk.Frame(export, style='Panel.TFrame')
+        folder.pack(fill='x', pady=(4, 10))
+        self.export_folder_entry = ttk.Entry(folder, textvariable=self.export_path_var)
+        self.export_folder_entry.pack(side='left', fill='x', expand=True)
+        self.export_folder_btn = ttk.Button(folder, text='Browse…', command=self._choose_export_folder)
+        self.export_folder_btn.pack(side='left', padx=(6, 0))
+        bar = ttk.Frame(export, style='Panel.TFrame')
+        bar.pack(fill='x')
+        self.all_lods_check = ttk.Checkbutton(bar, text='All LODs', variable=self.all_lods_var, style='Panel.TCheckbutton')
+        self.all_lods_check.pack(side='left')
+        self.include_animation_check = ttk.Checkbutton(bar, text='Include animation', variable=self.include_animation,
+                                                       state='disabled', style='Panel.TCheckbutton')
+        self.include_animation_check.pack(side='left', padx=(18, 0))
+        self.export_btn = ttk.Button(bar, text='Export model', command=self._export_model, state='disabled', style='Accent.TButton')
+        self.export_btn.pack(side='right')
+
+        rows = ((head, (0, 12)), (viewport, (0, 10)), (model_bar, (0, 6)), (self.simple_info, (2, 4)),
+                (ttk.Separator(detail), (8, 12)), (anim, (0, 0)), (ttk.Separator(detail), (14, 12)), (export, (0, 0)))
+        for row, (widget, pady) in enumerate(rows):
+            widget.grid(row=row, column=0, sticky='nsew', pady=pady)
+        detail.columnconfigure(0, weight=1); detail.rowconfigure(1, weight=1)
+        self.simple_info.grid_remove()
+
+    # ------------------------------------------------------------------ settings page
     def _build_appearance(self):
         canvas = tk.Canvas(self.appearance_tab, highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.appearance_tab, orient='vertical', command=canvas.yview)
         scrollbar.pack(side='right', fill='y'); canvas.pack(side='left', fill='both', expand=True)
         canvas.configure(yscrollcommand=scrollbar.set)
-        body = ttk.Frame(canvas, padding=16)
-        window = canvas.create_window((0,0), window=body, anchor='nw')
-        body.bind('<Configure>', lambda event: canvas.configure(scrollregion=canvas.bbox('all')))
+        outer = ttk.Frame(canvas, padding=(48, 30, 48, 48))
+        window = canvas.create_window((0, 0), window=outer, anchor='nw')
+        outer.bind('<Configure>', lambda _e: canvas.configure(scrollregion=canvas.bbox('all')))
         canvas.bind('<Configure>', lambda event: canvas.itemconfigure(window, width=event.width))
-        ttk.Label(body, text='Appearance', style='Title.TLabel').grid(row=0, column=0, columnspan=3, sticky='w', pady=(0, 12))
+        canvas.bind_all('<MouseWheel>', lambda e: canvas.yview_scroll(-1 if e.delta > 0 else 1, 'units')
+                        if self.tabs.select() == str(self.appearance_tab) else None, add='+')
+        body = ttk.Frame(outer)
+        body.pack(anchor='nw', fill='x')
         self.theme_var = tk.StringVar(value=self.appearance['preset'])
         self.layout_var = tk.StringVar(value=self.appearance['layout'])
         self.mascot_var = tk.BooleanVar(value=self.appearance['show_mascot'])
-        ttk.Label(body, text='Theme').grid(row=1, column=0, sticky='w', pady=5)
-        preset = ttk.Combobox(body, textvariable=self.theme_var, values=tuple(appearance.PRESETS), state='readonly', width=24)
-        preset.grid(row=1, column=1, sticky='w'); preset.bind('<<ComboboxSelected>>', self._choose_theme)
-        ttk.Label(body, text='Layout').grid(row=2, column=0, sticky='w', pady=5)
-        layout = ttk.Combobox(body, textvariable=self.layout_var, values=appearance.LAYOUTS, state='readonly', width=24)
-        layout.grid(row=2, column=1, sticky='w'); layout.bind('<<ComboboxSelected>>', self._choose_layout)
+
+        ttk.Label(body, text='Settings', style='Title.TLabel').pack(anchor='w')
+        ttk.Label(body, text='Changes apply immediately and are saved for next time.', style='Muted.TLabel').pack(anchor='w', pady=(4, 0))
+
+        def section(title, hint=None):
+            ttk.Separator(body).pack(fill='x', pady=(24, 18))
+            ttk.Label(body, text=title.upper(), style='Section.TLabel').pack(anchor='w')
+            if hint: ttk.Label(body, text=hint, style='Muted.TLabel').pack(anchor='w', pady=(4, 0))
+            frame = ttk.Frame(body); frame.pack(fill='x', anchor='w', pady=(12, 0))
+            return frame
+
+        game = section('Game', 'Where Apex Legends is installed. Detected automatically on Steam and EA app installs.')
+        self.path_entry = ttk.Entry(game, textvariable=self.game_path, width=64)
+        self.path_entry.pack(side='left', fill='x', expand=True)
+        self.detect_btn = ttk.Button(game, text='Detect', command=self._auto_detect)
+        self.detect_btn.pack(side='left', padx=(8, 0))
+        self.browse_btn = ttk.Button(game, text='Browse…', command=self._browse_game)
+        self.browse_btn.pack(side='left', padx=(6, 0))
+
+        themes = section('Theme')
+        self.preset_cards = {}
+        for name in appearance.PRESETS:
+            card = tk.Canvas(themes, width=150, height=92, highlightthickness=2, cursor='hand2', borderwidth=0)
+            card.pack(side='left', padx=(0, 14))
+            card.bind('<Button-1>', lambda _e, n=name: self._choose_theme(n))
+            self.preset_cards[name] = card
+        self.custom_theme_label = ttk.Label(body, text='', style='Muted.TLabel')
+        self.custom_theme_label.pack(anchor='w', pady=(8, 0))
+
+        layouts = section('Layout')
+        for name, hint in (('Classic Columns', 'Library, list and preview side by side'),
+                           ('Preview Focus', 'Larger preview on the right; library and list stacked'),
+                           ('Stacked Workspace', 'List above the preview; wide library column')):
+            row = ttk.Frame(layouts); row.pack(fill='x', anchor='w', pady=2)
+            ttk.Radiobutton(row, text=name, value=name, variable=self.layout_var, command=self._choose_layout,
+                            width=20).pack(side='left')
+            ttk.Label(row, text=hint, style='Muted.TLabel').pack(side='left')
+
+        colors = section('Custom colors', 'Edit any color to create a custom palette. Use hex values such as #e8503a.')
         self.color_vars = {}; self.color_swatches = {}
-        for row, (key, label) in enumerate([('background','Window background'), ('surface','Tables & inputs'), ('text','Text'), ('muted','Secondary text'), ('accent','Accent'), ('selection','Selected rows & tabs'), ('viewport','3D preview background')], start=4):
-            ttk.Label(body, text=label).grid(row=row, column=0, sticky='w', pady=4)
+        for index, (key, label) in enumerate(appearance.COLOR_LABELS):
+            row, column = index % 4, (index // 4) * 4
+            ttk.Label(colors, text=label).grid(row=row, column=column, sticky='w', pady=4, padx=(0, 12))
             variable = tk.StringVar(value=self.appearance['colors'][key]); self.color_vars[key] = variable
-            ttk.Entry(body, textvariable=variable, width=14).grid(row=row, column=1, sticky='w')
-            swatch = tk.Label(body, width=3, background=variable.get(), relief='solid', borderwidth=1)
-            swatch.grid(row=row, column=2, sticky='w', padx=(0, 10)); self.color_swatches[key] = swatch
-            ttk.Button(body, text='Choose…', command=lambda k=key: self._pick_color(k)).grid(row=row, column=3, sticky='w')
-        buttons = ttk.Frame(body); buttons.grid(row=11, column=0, columnspan=4, sticky='w', pady=12)
+            entry = ttk.Entry(colors, textvariable=variable, width=10)
+            entry.grid(row=row, column=column+1, sticky='w')
+            entry.bind('<Return>', lambda _e: self._apply_custom_colors())
+            swatch = tk.Label(colors, width=3, background=variable.get(), relief='flat', borderwidth=0, cursor='hand2')
+            swatch.grid(row=row, column=column+2, sticky='ns', padx=(6, 40), pady=6)
+            swatch.bind('<Button-1>', lambda _e, k=key: self._pick_color(k))
+            self.color_swatches[key] = swatch
+        buttons = ttk.Frame(body); buttons.pack(anchor='w', pady=(14, 0))
         ttk.Button(buttons, text='Apply colors', command=self._apply_custom_colors).pack(side='left')
-        ttk.Button(buttons, text='Reset appearance', command=self._reset_appearance).pack(side='left', padx=8)
-        ttk.Checkbutton(body, text='Show logo', variable=self.mascot_var, command=self._toggle_mascot).grid(row=12, column=0, columnspan=4, sticky='w')
-        mascot_buttons = ttk.Frame(body); mascot_buttons.grid(row=13, column=0, columnspan=4, sticky='w', pady=8)
-        ttk.Button(mascot_buttons, text='Change logo…', command=self._choose_mascot).pack(side='left')
-        ttk.Button(mascot_buttons, text='Reset logo', command=self._restore_mascot).pack(side='left', padx=8)
-        self.mascot_portrait = ttk.Label(body)
-        self.mascot_portrait.grid(row=1, column=5, rowspan=13, sticky='ne', padx=(40, 0))
+        ttk.Button(buttons, text='Reset to default', style='Ghost.TButton', command=self._reset_appearance).pack(side='left', padx=8)
+
+        logo = section('Logo', 'Shown in the header and on the startup screen.')
+        self.mascot_portrait = ttk.Label(logo)
+        self.mascot_portrait.pack(side='left', anchor='n')
+        logo_controls = ttk.Frame(logo); logo_controls.pack(side='left', anchor='n', padx=(24, 0))
+        ttk.Checkbutton(logo_controls, text='Show logo in header', variable=self.mascot_var, command=self._toggle_mascot).pack(anchor='w')
+        ttk.Button(logo_controls, text='Change logo…', command=self._choose_mascot).pack(anchor='w', pady=(12, 0))
+        ttk.Button(logo_controls, text='Use original artwork', style='Ghost.TButton', command=self._restore_mascot).pack(anchor='w', pady=(6, 0))
         self.appearance_status = ttk.Label(body, text='', style='Muted.TLabel')
-        self.appearance_status.grid(row=15, column=0, columnspan=4, sticky='w', pady=8)
+        self.appearance_status.pack(anchor='w', pady=(18, 0))
 
     def _apply_layout(self):
         pane = self.workspace; nav, center, detail = self.workspace_panels
@@ -268,39 +445,53 @@ class ApexAssetStudioApp(tk.Tk):
         for row in range(2): pane.rowconfigure(row, weight=0, minsize=0)
         layout = self.appearance['layout']
         self.preview.configure(height=150 if layout == 'Stacked Workspace' else 300)
-        self.simple_info.configure(height=4 if layout == 'Stacked Workspace' else 6)
         self.simple_assets.configure(height=3 if layout == 'Stacked Workspace' else 10)
         if layout == 'Classic Columns':
-            for i, panel in enumerate(self.workspace_panels): panel.grid(row=0, column=i, sticky='nsew')
-            for i, weight in enumerate((2, 4, 5)): pane.columnconfigure(i, weight=weight, uniform='classic')
+            nav.grid(row=0, column=0, sticky='nsew', padx=(0, 1))
+            center.grid(row=0, column=1, sticky='nsew', padx=(0, 1))
+            detail.grid(row=0, column=2, sticky='nsew')
+            for i, weight in enumerate((2, 4, 6)): pane.columnconfigure(i, weight=weight)
+            pane.columnconfigure(0, minsize=220); pane.columnconfigure(1, minsize=340)
             pane.rowconfigure(0, weight=1)
         elif layout == 'Preview Focus':
-            nav.grid(row=0, column=0, sticky='nsew'); center.grid(row=1, column=0, sticky='nsew')
+            nav.grid(row=0, column=0, sticky='nsew', padx=(0, 1), pady=(0, 1))
+            center.grid(row=1, column=0, sticky='nsew', padx=(0, 1))
             detail.grid(row=0, column=1, rowspan=2, sticky='nsew')
             pane.columnconfigure(0, weight=4, uniform='focus'); pane.columnconfigure(1, weight=6, uniform='focus')
             pane.rowconfigure(0, weight=2); pane.rowconfigure(1, weight=3)
         else:
-            nav.grid(row=0, column=0, rowspan=2, sticky='nsew'); center.grid(row=0, column=1, sticky='nsew')
+            nav.grid(row=0, column=0, rowspan=2, sticky='nsew', padx=(0, 1))
+            center.grid(row=0, column=1, sticky='nsew', pady=(0, 1))
             detail.grid(row=1, column=1, sticky='nsew')
-            pane.columnconfigure(0, weight=2, uniform='stack'); pane.columnconfigure(1, weight=8, uniform='stack')
+            pane.columnconfigure(0, weight=2, minsize=220); pane.columnconfigure(1, weight=8)
             pane.rowconfigure(0, weight=2); pane.rowconfigure(1, weight=4)
 
     def _apply_appearance(self, save=True):
         self.appearance_status.configure(text='')
-        appearance.apply(self, self.appearance); self._apply_layout(); self._load_mascot()
+        self.tokens = c = appearance.apply(self, self.appearance)
+        f = appearance.fonts(self)
+        self.simple_tree.tag_configure('category', foreground=c['muted'], font=f['section'])
+        self.simple_assets.tag_configure('muted', foreground=c['muted'])
+        for label in (self.preview_message, self.preview_hint):
+            label.configure(background=appearance.mix('#ffffff', c['viewport'], .012) if label is self.preview_message else c['viewport'],
+                            foreground=c['muted'] if label is self.preview_message else c['faint'])
+        self._draw_preset_cards(); self._apply_layout(); self._load_mascot()
         if save:
             try:
                 appearance.save(self.appearance_path, self.appearance)
             except OSError as exc: self.appearance_status.configure(text=f'Could not save settings: {exc}')
 
-    def _choose_theme(self, _event=None):
-        self.appearance['preset'] = self.theme_var.get()
-        self.appearance['colors'] = dict(appearance.PRESETS[self.theme_var.get()])
+    def _choose_theme(self, name=None):
+        name = name or self.theme_var.get()
+        self.theme_var.set(name)
+        self.appearance['preset'] = name
+        self.appearance['colors'] = dict(appearance.PRESETS[name])
         self._sync_color_controls(); self._apply_appearance()
 
     def _sync_color_controls(self):
         for key, color in self.appearance['colors'].items():
-            self.color_vars[key].set(color); self.color_swatches[key].configure(background=color)
+            if key in self.color_vars:
+                self.color_vars[key].set(color); self.color_swatches[key].configure(background=color)
 
     def _choose_layout(self, _event=None):
         self.appearance['layout'] = self.layout_var.get(); self._apply_appearance()
@@ -313,7 +504,8 @@ class ApexAssetStudioApp(tk.Tk):
         import re
         colors = {key: variable.get().strip() for key, variable in self.color_vars.items()}
         if any(not re.fullmatch(r'#[0-9a-fA-F]{6}', color) for color in colors.values()):
-            self.appearance_status.configure(text='Enter a hex color, e.g. #ef6549.'); return
+            self.appearance_status.configure(text='Enter colors as hex values, for example #e8503a.'); return
+        if colors == self.appearance['colors']: return
         self.appearance.update(preset='Custom', colors=colors); self.theme_var.set('Custom')
         self._sync_color_controls(); self._apply_appearance()
 
@@ -330,13 +522,19 @@ class ApexAssetStudioApp(tk.Tk):
         try:
             with Image.open(path) as image:
                 image = image.convert('RGBA')
-                portrait = image.copy(); portrait.thumbnail((220, 315))
+                portrait = image.copy(); portrait.thumbnail((180, 240), Image.Resampling.LANCZOS)
                 self._mascot_portrait_image = ImageTk.PhotoImage(portrait)
-                image.thumbnail((72, 50)); self._mascot_image = ImageTk.PhotoImage(image)
+                header = image.copy(); header.thumbnail((40, 30), Image.Resampling.LANCZOS)
+                self._mascot_image = ImageTk.PhotoImage(header)
+                icon = image.copy(); icon.thumbnail((64, 64), Image.Resampling.LANCZOS)
+                icon_image = ImageTk.PhotoImage(icon)
             self.mascot_portrait.configure(image=self._mascot_portrait_image)
-            self.mascot_label.configure(image=self._mascot_image if self.appearance['show_mascot'] else '')
+            if self.appearance['show_mascot']:
+                self.mascot_label.configure(image=self._mascot_image); self.mascot_label.pack(side='left', padx=(0, 10), before=self.mascot_label.master.winfo_children()[1])
+            else:
+                self.mascot_label.pack_forget()
             if hasattr(self, '_icon_image'): return
-            self._icon_image = self._mascot_image; self.iconphoto(True, self._icon_image)
+            self._icon_image = icon_image; self.iconphoto(True, self._icon_image)
         except (OSError, ValueError):
             self.mascot_label.configure(image='')
             self.appearance_status.configure(text='Logo file not found or unsupported.')
@@ -357,94 +555,121 @@ class ApexAssetStudioApp(tk.Tk):
         if hasattr(self, '_icon_image'): del self._icon_image
         self._apply_appearance()
 
+    # ------------------------------------------------------------------ explorer page
     def _build_advanced(self):
-        inner = ttk.Notebook(self.advanced_tab)
-        inner.pack(fill="both", expand=True, padx=6, pady=6)
-        assets_tab = ttk.Frame(inner)
-        strings_tab = ttk.Frame(inner)
-        inner.add(assets_tab, text="Assets")
-        inner.add(strings_tab, text="Raw Strings")
+        page = ttk.Frame(self.advanced_tab, padding=(18, 14, 18, 14))
+        page.pack(fill='both', expand=True)
+        inner = ttk.Notebook(page)
+        inner.pack(fill='both', expand=True)
+        assets_tab = ttk.Frame(inner, padding=(0, 12, 0, 0))
+        strings_tab = ttk.Frame(inner, padding=(0, 12, 0, 0))
+        inner.add(assets_tab, text='Assets')
+        inner.add(strings_tab, text='Raw strings')
 
-        top = ttk.Frame(assets_tab, padding=(0, 0, 0, 6))
-        top.pack(fill="x")
-        ttk.Label(top, text="Search:").pack(side="left")
+        top = ttk.Frame(assets_tab, padding=(0, 0, 0, 10))
+        top.pack(fill='x')
         entry = ttk.Entry(top, textvariable=self.search_var)
-        entry.pack(side="left", fill="x", expand=True, padx=(6, 6))
-        entry.bind("<Return>", lambda e: self.search_advanced())
-        self.type_filter = ttk.Combobox(top, textvariable=self.type_filter_var, state="readonly", width=14)
-        self.type_filter.pack(side="left", padx=(0, 6))
-        self.type_filter.bind("<<ComboboxSelected>>", lambda e: self.search_advanced())
-        ttk.Button(top, text="Search", command=self.search_advanced).pack(side="left")
-        ttk.Button(top, text="Clear", command=self._clear_advanced_search).pack(side="left", padx=(5, 0))
-        ttk.Label(top, textvariable=self.advanced_count_var, style="Muted.TLabel").pack(side="right", padx=(8, 0))
+        entry.pack(side='left', fill='x', expand=True, padx=(0, 8))
+        entry.bind('<Return>', lambda _e: self.search_advanced())
+        self._placeholder(entry, self.search_var, 'Search by name, GUID or container')
+        self.type_filter = ttk.Combobox(top, textvariable=self.type_filter_var, state='readonly', width=14)
+        self.type_filter.pack(side='left', padx=(0, 8))
+        self.type_filter.bind('<<ComboboxSelected>>', lambda _e: self.search_advanced())
+        ttk.Button(top, text='Search', command=self.search_advanced).pack(side='left')
+        ttk.Button(top, text='Clear', style='Ghost.TButton', command=self._clear_advanced_search).pack(side='left', padx=(4, 0))
+        ttk.Label(top, textvariable=self.advanced_count_var, style='Muted.TLabel').pack(side='right', padx=(12, 0))
 
-        asset_pane = ttk.Panedwindow(assets_tab, orient="vertical")
-        asset_pane.pack(fill="both", expand=True)
-        table_frame = ttk.Frame(asset_pane)
-        detail_frame = ttk.Frame(asset_pane)
+        asset_pane = ttk.Panedwindow(assets_tab, orient='vertical')
+        asset_pane.pack(fill='both', expand=True)
+        table_frame = ttk.Frame(asset_pane, style='Panel.TFrame')
+        detail_frame = ttk.Frame(asset_pane, style='Panel.TFrame', padding=(14, 12, 14, 0))
         asset_pane.add(table_frame, weight=4)
         asset_pane.add(detail_frame, weight=1)
 
-        cols = ("type", "name", "guid", "ver", "hdr", "pak", "patch", "compression", "starpak")
-        self.asset_table = ttk.Treeview(table_frame, columns=cols, show="headings", selectmode="browse")
-        widths = {"type": 60, "name":250, "guid": 145, "ver": 45, "hdr": 55, "pak": 240, "patch": 45, "compression": 75, "starpak": 100}
-        labels = {"type": "Type", "name":"Decoded name", "guid": "GUID", "ver": "Ver", "hdr": "Header", "pak": "Container", "patch": "Patch", "compression": "Compression", "starpak": "StarPak"}
+        cols = ('type', 'name', 'guid', 'ver', 'hdr', 'pak', 'patch', 'compression', 'starpak')
+        self.asset_table = ttk.Treeview(table_frame, columns=cols, show='headings', selectmode='browse')
+        widths = {'type': 64, 'name': 260, 'guid': 150, 'ver': 50, 'hdr': 76, 'pak': 240, 'patch': 70, 'compression': 120, 'starpak': 100}
+        labels = {'type': 'TYPE', 'name': 'NAME', 'guid': 'GUID', 'ver': 'VER', 'hdr': 'HEADER', 'pak': 'CONTAINER',
+                  'patch': 'PATCH', 'compression': 'COMPRESSION', 'starpak': 'STARPAK'}
         for c in cols:
-            self.asset_table.heading(c, text=labels[c])
-            self.asset_table.column(c, width=widths[c], stretch=c == "pak")
-        self.asset_table.pack(fill="both", expand=True)
-        scrollbar = ttk.Scrollbar(table_frame,orient='horizontal',command=self.asset_table.xview)
-        scrollbar.pack(fill='x');self.asset_table.configure(xscrollcommand=scrollbar.set)
-        self.asset_table.bind("<<TreeviewSelect>>", self._advanced_asset_selected)
+            self.asset_table.heading(c, text=labels[c], anchor='w')
+            self.asset_table.column(c, width=widths[c], stretch=c in ('name', 'pak'), anchor='w')
+        yscroll = ttk.Scrollbar(table_frame, orient='vertical', command=self.asset_table.yview)
+        xscroll = ttk.Scrollbar(table_frame, orient='horizontal', command=self.asset_table.xview)
+        self.asset_table.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
+        xscroll.pack(side='bottom', fill='x'); yscroll.pack(side='right', fill='y')
+        self.asset_table.pack(fill='both', expand=True)
+        self.asset_table.bind('<<TreeviewSelect>>', self._advanced_asset_selected)
 
-        detail_header = ttk.Frame(detail_frame)
-        detail_header.pack(fill="x")
-        ttk.Label(detail_header, text="Selected asset", style="Title.TLabel").pack(side="left")
-        self.advanced_open_btn = ttk.Button(detail_header, text="Open Container Folder", command=lambda: self._open_selected_container("advanced"))
-        self.advanced_open_btn.pack(side="right")
-        self.advanced_open_btn.state(["disabled"])
-        self.advanced_preview_btn = ttk.Button(detail_header,text='Preview model',command=self._preview_advanced,state='disabled')
-        self.advanced_preview_btn.pack(side='right',padx=4)
-        self.asset_detail = tk.Text(detail_frame, height=8, font=("Consolas", 9), wrap="none", state="disabled")
-        self.asset_detail.pack(fill="both", expand=True, pady=(6, 0))
+        detail_header = ttk.Frame(detail_frame, style='Panel.TFrame')
+        detail_header.pack(fill='x')
+        self._section(detail_header, 'Selected asset').pack(side='left')
+        self.advanced_open_btn = ttk.Button(detail_header, text='Open RPak folder', style='Ghost.Panel.TButton',
+                                            command=lambda: self._open_selected_container('advanced'))
+        self.advanced_open_btn.pack(side='right')
+        self.advanced_open_btn.state(['disabled'])
+        self.advanced_preview_btn = ttk.Button(detail_header, text='Preview model', command=self._preview_advanced, state='disabled')
+        self.advanced_preview_btn.pack(side='right', padx=6)
+        self.asset_detail = tk.Text(detail_frame, height=8, font=appearance.fonts(self)['mono'], wrap='none', state='disabled')
+        self.asset_detail.flush = True
+        self.asset_detail.pack(fill='both', expand=True, pady=(8, 0))
 
-        string_top = ttk.Frame(strings_tab, padding=(0, 0, 0, 6))
-        string_top.pack(fill="x")
-        ttk.Label(string_top, text="Search strings:").pack(side="left")
+        string_top = ttk.Frame(strings_tab, padding=(0, 0, 0, 10))
+        string_top.pack(fill='x')
         string_entry = ttk.Entry(string_top, textvariable=self.string_search_var)
-        string_entry.pack(side="left", fill="x", expand=True, padx=6)
-        string_entry.bind("<Return>", lambda e: self.search_strings())
-        ttk.Button(string_top, text="Search", command=self.search_strings).pack(side="left")
-        ttk.Button(string_top, text="Clear", command=self._clear_string_search).pack(side="left", padx=(5, 0))
+        string_entry.pack(side='left', fill='x', expand=True, padx=(0, 8))
+        string_entry.bind('<Return>', lambda _e: self.search_strings())
+        self._placeholder(string_entry, self.string_search_var, 'Search readable strings inside every RPak')
+        ttk.Button(string_top, text='Search', command=self.search_strings).pack(side='left')
+        ttk.Button(string_top, text='Clear', style='Ghost.TButton', command=self._clear_string_search).pack(side='left', padx=(4, 0))
 
-        string_cols = ("value", "container", "compression")
-        self.string_table = ttk.Treeview(strings_tab, columns=string_cols, show="headings")
-        self.string_table.heading("value", text="Value")
-        self.string_table.heading("container", text="Container")
-        self.string_table.heading("compression", text="Compression")
-        self.string_table.column("value", width=700, stretch=True)
-        self.string_table.column("container", width=360, stretch=True)
-        self.string_table.column("compression", width=100, stretch=False)
-        self.string_table.pack(fill="both", expand=True)
+        string_frame = ttk.Frame(strings_tab, style='Panel.TFrame')
+        string_frame.pack(fill='both', expand=True)
+        string_cols = ('value', 'container', 'compression')
+        self.string_table = ttk.Treeview(string_frame, columns=string_cols, show='headings')
+        for key, title, width, stretch in (('value', 'VALUE', 700, True), ('container', 'CONTAINER', 360, True), ('compression', 'COMPRESSION', 110, False)):
+            self.string_table.heading(key, text=title, anchor='w')
+            self.string_table.column(key, width=width, stretch=stretch, anchor='w')
+        string_scroll = ttk.Scrollbar(string_frame, orient='vertical', command=self.string_table.yview)
+        string_scroll.pack(side='right', fill='y'); self.string_table.configure(yscrollcommand=string_scroll.set)
+        self.string_table.pack(fill='both', expand=True)
 
+    # ------------------------------------------------------------------ diagnostics page
     def _build_diag(self):
-        pane = ttk.Panedwindow(self.diag_tab, orient="vertical")
-        pane.pack(fill="both", expand=True, padx=6, pady=6)
-        summary_frame = ttk.Frame(pane)
-        log_frame = ttk.Frame(pane)
+        page = ttk.Frame(self.diag_tab, padding=(18, 14, 18, 14))
+        page.pack(fill='both', expand=True)
+        header = ttk.Frame(page)
+        header.pack(fill='x', pady=(0, 12))
+        ttk.Label(header, text='Diagnostics', style='Title.TLabel').pack(side='left')
+        ttk.Button(header, text='Save report…', command=self.save_report).pack(side='right')
+        ttk.Button(header, text='Show failures', command=self.show_failures).pack(side='right', padx=6)
+        ttk.Button(header, text='Refresh', style='Ghost.TButton', command=self.refresh_summary).pack(side='right')
+        tiles = ttk.Frame(page)
+        tiles.pack(fill='x', pady=(0, 12))
+        self.stat_vars = {}
+        for i, (key, label) in enumerate((('containers', 'RPak containers'), ('assets', 'Indexed assets'),
+                                          ('cosmetics', 'Cosmetics'), ('failed', 'Failed containers'))):
+            card = ttk.Frame(tiles, style='Card.TFrame', padding=(16, 12, 16, 12))
+            card.grid(row=0, column=i, sticky='nsew', padx=(0 if i == 0 else 12, 0))
+            tiles.columnconfigure(i, weight=1, uniform='stats')
+            self.stat_vars[key] = tk.StringVar(value='–')
+            ttk.Label(card, textvariable=self.stat_vars[key], style='Stat.Card.TLabel').pack(anchor='w')
+            ttk.Label(card, text=label, style='Small.Card.TLabel').pack(anchor='w', pady=(2, 0))
+        pane = ttk.Panedwindow(page, orient='vertical')
+        pane.pack(fill='both', expand=True)
+        mono = appearance.fonts(self)['mono']
+        summary_frame = ttk.Frame(pane, style='Panel.TFrame', padding=(14, 12, 14, 0))
+        log_frame = ttk.Frame(pane, style='Panel.TFrame', padding=(14, 12, 14, 0))
         pane.add(summary_frame, weight=1)
-        pane.add(log_frame, weight=3)
-
-        self.summary_text = tk.Text(summary_frame, height=14, font=("Consolas", 9), wrap="none", state="disabled")
-        self.summary_text.pack(fill="both", expand=True)
-
-        buttons = ttk.Frame(log_frame)
-        buttons.pack(fill="x")
-        ttk.Button(buttons, text="Refresh Summary", command=self.refresh_summary).pack(side="left")
-        ttk.Button(buttons, text="Show Failure Details", command=self.show_failures).pack(side="left", padx=5)
-        ttk.Button(buttons, text="Save Diagnostic Report", command=self.save_report).pack(side="left")
-        self.log_text = tk.Text(log_frame, font=("Consolas", 9), wrap="none")
-        self.log_text.pack(fill="both", expand=True, pady=(6, 0))
+        pane.add(log_frame, weight=2)
+        self._section(summary_frame, 'Index summary').pack(anchor='w')
+        self.summary_text = tk.Text(summary_frame, height=14, font=mono, wrap='none', state='disabled')
+        self.summary_text.flush = True
+        self.summary_text.pack(fill='both', expand=True, pady=(8, 0))
+        self._section(log_frame, 'Scan log').pack(anchor='w')
+        self.log_text = tk.Text(log_frame, font=mono, wrap='none')
+        self.log_text.flush = True
+        self.log_text.pack(fill='both', expand=True, pady=(8, 0))
 
     def _auto_detect(self):
         if self._scanning:
@@ -577,8 +802,11 @@ class ApexAssetStudioApp(tk.Tk):
                     self.open_source_btn.state(['!disabled'])
                     self.animations_btn.state(['!disabled'])
                     total = sum(len(m.positions) for m in model.lods[min(model.lods)])
-                    label = f'{self._cosmetic["owner_name"]} — {self._cosmetic["name"]}' if self._cosmetic else Path(model.name).stem
-                    self._set_simple_info(f'{label}\n{total:,} vertices • {len(model.bones)} bones • {len(model.lods)} LODs\n'+ '\n'.join(warnings+model.warnings))
+                    title = self._cosmetic['name'] if self._cosmetic else Path(model.name).stem
+                    owner = f'{self._cosmetic["owner_name"]}  ·  {self.model_choice_var.get()}  ·  ' if self._cosmetic else ''
+                    self._set_inspector(title, f'{owner}{total:,} vertices  ·  {len(model.bones)} bones  ·  {len(model.lods)} LODs')
+                    self._set_simple_info('\n'.join(warnings+model.warnings) + ('' if model.material_family_resolved else
+                        '\nThis skin\'s material set is not decoded yet, so export is disabled.'))
                     self.status_var.set('Model loaded.' if model.material_family_resolved else 'Model loaded. Material set unavailable.')
                     if model.material_family_resolved: self._load_preview_textures(model,serial)
                 elif event[0]=='preview_textures':
@@ -598,7 +826,7 @@ class ApexAssetStudioApp(tk.Tk):
                     self._set_busy(False)
                     if serial != self._selection_serial: continue
                     if self._model: self._render_model()
-                    else: self.preview.clear(f'Preview unavailable\n\n{error}')
+                    else: self.preview.clear('Preview unavailable')
                     self._set_simple_info(error)
                     self.status_var.set(error)
                     self._log(error)
@@ -636,38 +864,42 @@ class ApexAssetStudioApp(tk.Tk):
         self.refresh_type_filter()
         self.search_advanced()
 
+    # ------------------------------------------------------------------ library data
     def refresh_simple_library(self):
         self.simple_tree.delete(*self.simple_tree.get_children())
         self.simple_assets.delete(*self.simple_assets.get_children())
         self._simple_sections.clear()
+        self.list_count_var.set('')
         if self.catalog.index_outdated:
-            self.simple_header_var.set("Assets")
-            self.preview.clear("No model selected")
-            self._set_simple_info('');self.status_var.set('Scan required')
+            self.simple_header_var.set('Library')
+            self.preview.clear('No library yet\n\nPress “Scan library” to index your Apex install.')
+            self._set_inspector('Nothing selected'); self._set_simple_info('')
+            self.status_var.set('Scan required')
             return
         owners = self.catalog.cosmetic_owners()
         categories = {}
         if owners:
-            iid = self.simple_tree.insert('', 'end',text=f'All cosmetics ({sum(o["count"] for o in owners):,})')
-            self._simple_sections[iid] = ('owner',None)
+            iid = self.simple_tree.insert('', 'end', text='All cosmetics', values=(f'{sum(o["count"] for o in owners):,}',))
+            self._simple_sections[iid] = ('owner', None)
         for owner in owners:
             category = owner['category']
             if category not in categories:
-                categories[category] = self.simple_tree.insert('', 'end',text=category,open=True)
-            iid = self.simple_tree.insert(categories[category],'end',text=f'{owner["owner_name"]} ({owner["count"]:,})')
-            self._simple_sections[iid] = ('owner',owner['owner_guid'])
+                categories[category] = self.simple_tree.insert('', 'end', text=str(category).upper(), open=True, tags=('category',))
+            iid = self.simple_tree.insert(categories[category], 'end', text=owner['owner_name'], values=(f'{owner["count"]:,}',))
+            self._simple_sections[iid] = ('owner', owner['owner_guid'])
         sections = [s for s in self.catalog.simple_sections() if 'mdl_' in s['types']]
         if not sections and not owners:
-            self.simple_header_var.set("Assets")
-            self.preview.clear("No model selected")
-            self._set_simple_info('')
+            self.simple_header_var.set('Library')
+            self.preview.clear('No models in the index')
+            self._set_inspector('Nothing selected'); self._set_simple_info('')
             return
+        if sections:
+            group = self.simple_tree.insert('', 'end', text='RAW ASSETS', open=True, tags=('category',))
+            for section in sections:
+                iid = self.simple_tree.insert(group, 'end', text=section['label'], values=(f'{section["count"]:,}',))
+                self._simple_sections[iid] = ('raw', tuple(section['types']))
 
-        for section in sections:
-            iid = self.simple_tree.insert("", "end", text=f"{section['label']} ({section['count']:,})")
-            self._simple_sections[iid] = ('raw',tuple(section["types"]))
-
-        first = next(iter(self._simple_sections),None)
+        first = next(iter(self._simple_sections), None)
         if first is None: return
         self.simple_tree.selection_set(first)
         self.simple_tree.focus(first)
@@ -686,27 +918,31 @@ class ApexAssetStudioApp(tk.Tk):
         spec = self._simple_sections.get(iid)
         if not spec or self._scanning or self._busy:
             return
-        label = self.simple_tree.item(iid, "text")
-        self.simple_header_var.set(label)
+        self.simple_header_var.set(self.simple_tree.item(iid, 'text'))
         text = self.simple_search_var.get().strip()
         if spec[0] == 'owner':
-            rows = self.catalog.search_cosmetics(text,owner_guid=spec[1])
+            rows = self.catalog.search_cosmetics(text, owner_guid=spec[1])
         else:
-            rows = self.catalog.search_assets(text,asset_type='mdl_',limit=2500)
+            rows = self.catalog.search_assets(text, asset_type='mdl_', limit=2500)
         self.simple_assets.delete(*self.simple_assets.get_children())
         for r in rows:
             if spec[0] == 'owner':
-                models = json.loads(r['details']).get('models',[])
-                self.simple_assets.insert('', 'end',iid=f'cosmetic:{r["id"]}',values=(r['name'],r['quality'],'Model found' if any(m.get('pak_name') for m in models) else 'Model unresolved'))
+                models = json.loads(r['details']).get('models', [])
+                found = any(m.get('pak_name') for m in models)
+                self.simple_assets.insert('', 'end', iid=f'cosmetic:{r["id"]}', tags=() if found else ('muted',),
+                                          values=(r['name'], r['quality'], 'Ready' if found else 'Unresolved'))
             else:
-                self.simple_assets.insert('', 'end',iid=f'simple:{r["id"]}',values=(r['name'] or f'Unnamed {r["guid"]}',r['type'],r['decode_status']))
-        self.preview.clear("Select a model")
-        self._set_simple_info(f"{len(rows):,} assets")
-        self.open_source_btn.state(["disabled"])
+                self.simple_assets.insert('', 'end', iid=f'simple:{r["id"]}',
+                                          values=(r['name'] or f'Unnamed {r["guid"]}', r['type'], r['decode_status']))
+        self.list_count_var.set(f'{len(rows):,} item' + ('' if len(rows) == 1 else 's'))
+        self.preview.clear('Select an item to preview it')
+        self._set_inspector('Nothing selected', 'Pick an item from the list.')
+        self._set_simple_info('')
+        self.open_source_btn.state(['disabled'])
         self._model = None
-        self._animation=None;self._playing=False;self._animation_serial+=1
-        self.animation_name.set('');self.play_btn.configure(text='Play')
-        for widget in (self.play_btn,self.frame_slider,self.animation_export_btn,self.include_animation_check): widget.state(['disabled'])
+        self._animation = None; self._playing = False; self._animation_serial += 1
+        self.animation_name.set(''); self.play_btn.configure(text='Play')
+        for widget in (self.play_btn, self.frame_slider, self.animation_export_btn, self.include_animation_check): widget.state(['disabled'])
         self.export_btn.state(['disabled'])
         self.animations_btn.state(['disabled'])
 
@@ -725,13 +961,14 @@ class ApexAssetStudioApp(tk.Tk):
             row = self.catalog.get_cosmetic(int(sel[0].split(':')[1]))
             if row is None: return
             self._cosmetic = dict(row)
+            self._set_inspector(self._cosmetic.get('name', ''), '  ·  '.join(str(x) for x in (self._cosmetic.get('owner_name'), self._cosmetic.get('quality')) if x))
             self._model_choices = json.loads(row['details']).get('models',[])
             self.model_choice.configure(values=[self._model_label(x) for x in self._model_choices],state='readonly' if self._model_choices else 'disabled')
             if self._model_choices:
                 self.model_choice_var.set(self._model_label(self._model_choices[0]))
                 self._load_cosmetic_model()
             else:
-                self.preview.clear('Model relationship unresolved')
+                self.preview.clear('This cosmetic has no linked model yet')
                 self._set_simple_info('Model reference unresolved.')
             return
         self._cosmetic = None
@@ -769,6 +1006,7 @@ class ApexAssetStudioApp(tk.Tk):
         ]
 
         if simple:
+            self._set_inspector(row['name'] or f'Unnamed {row["guid"]}', f'{row["type"]}  ·  {row["filename"]}')
             if row["type"] == "mdl_":
                 self.preview.clear("Loading model…")
             else:
@@ -831,6 +1069,9 @@ class ApexAssetStudioApp(tk.Tk):
 
     def refresh_summary(self):
         s = self.catalog.summary()
+        if hasattr(self, 'stat_vars'):
+            for key, value in (('containers', s['containers']), ('assets', s['assets']), ('cosmetics', s['cosmetics']), ('failed', s['failed'])):
+                self.stat_vars[key].set(f'{value:,}')
         game_root = Path(self.game_path.get()) if self.game_path.get().strip() else Path.cwd()
         try:
             oodle = OodleRuntime(game_root).description
@@ -917,10 +1158,13 @@ class ApexAssetStudioApp(tk.Tk):
             subprocess.Popen(["xdg-open", str(folder)])
 
     def _set_simple_info(self, text: str):
-        self.simple_info.configure(state="normal",height=min(6,max(1,len(text.rstrip().splitlines()))))
-        self.simple_info.delete("1.0", "end")
-        self.simple_info.insert("1.0", text)
-        self.simple_info.configure(state="disabled")
+        text = text.strip()
+        self.simple_info.configure(state='normal', height=min(5, max(1, len(text.splitlines()))))
+        self.simple_info.delete('1.0', 'end')
+        self.simple_info.insert('1.0', text)
+        self.simple_info.configure(state='disabled')
+        if text: self.simple_info.grid()
+        else: self.simple_info.grid_remove()
 
     def _set_asset_detail(self, text: str):
         self.asset_detail.configure(state="normal")
@@ -1060,15 +1304,20 @@ class ApexAssetStudioApp(tk.Tk):
         unique={}
         for row in rows: unique.setdefault(row['guid'],row)
         rows=list(unique.values())
-        window = tk.Toplevel(self); window.title('Animations')
+        window = tk.Toplevel(self); window.title(f'Animations · {self.inspector_title.get()}')
         window.configure(background=self.appearance['colors']['background'])
         window.geometry('1180x700');window.minsize(950,550);window.transient(self);window.grab_set()
-        query = tk.StringVar(); entry=ttk.Entry(window,textvariable=query);entry.pack(fill='x',padx=8,pady=4)
-        body=ttk.Panedwindow(window,orient='horizontal');body.pack(fill='both',expand=True,padx=8,pady=4)
-        frame=ttk.Frame(body);body.add(frame,weight=3)
+        if hasattr(self, '_icon_image'): window.iconphoto(False, self._icon_image)
+        heading=ttk.Frame(window,padding=(16,14,16,0));heading.pack(fill='x')
+        ttk.Label(heading,text='Animations',style='Title.TLabel').pack(side='left')
+        ttk.Label(heading,text=f'{len(rows):,} sequences declared for {self.inspector_title.get()}',style='Muted.TLabel').pack(side='left',padx=(12,0),pady=(6,0))
+        query = tk.StringVar(); entry=ttk.Entry(window,textvariable=query);entry.pack(fill='x',padx=16,pady=(12,10))
+        self._placeholder(entry,query,'Filter sequences')
+        body=ttk.Panedwindow(window,orient='horizontal');body.pack(fill='both',expand=True,padx=16,pady=(0,4))
+        frame=ttk.Frame(body,style='Panel.TFrame');body.add(frame,weight=3)
         table=ttk.Treeview(frame,columns=('name','guid','link','source'),show='headings')
-        for key,title,width in [('name','Sequence',420),('guid','GUID',150),('link','Link',130),('source','RPak',280)]:
-            table.heading(key,text=title);table.column(key,width=width)
+        for key,title,width in [('name','SEQUENCE',420),('guid','GUID',150),('link','LINK',130),('source','RPAK',280)]:
+            table.heading(key,text=title,anchor='w');table.column(key,width=width,anchor='w')
         table.configure(displaycolumns=('name','source'));table.column('name',width=350);table.column('source',width=160)
         table.pack(side='left',fill='both',expand=True)
         scroll=ttk.Scrollbar(frame,command=table.yview);scroll.pack(side='right',fill='y');table.configure(yscrollcommand=scroll.set)
@@ -1081,22 +1330,23 @@ class ApexAssetStudioApp(tk.Tk):
                 name=Path(row['name'] or '').stem.replace('_',' ').strip().title()
                 table.insert('','end',iid=str(i),values=(name,row['guid'],link,row['filename']))
         query_trace=query.trace_add('write',refresh);refresh();entry.focus_set()
-        right=ttk.Frame(body);body.add(right,weight=2)
-        viewport=ModelPreview(right);viewport.pack(fill='both',expand=True)
+        right=ttk.Frame(body,style='Panel.TFrame',padding=(14,14,14,10));body.add(right,weight=2)
+        viewport_frame=ttk.Frame(right,style='Hairline.TFrame',padding=1);viewport_frame.pack(fill='both',expand=True)
+        viewport=ModelPreview(viewport_frame);viewport.pack(fill='both',expand=True)
         viewport.set_palette(self.appearance['colors']['viewport'],'','')
         viewport.set_model(self._model,int(self.lod_var.get().split()[-1]));viewport.set_textures(self._preview_pixels)
-        info=tk.StringVar();ttk.Label(right,textvariable=info,wraplength=430).pack(fill='x',pady=4)
-        controls=ttk.Frame(right);controls.pack(fill='x',pady=4)
+        info=tk.StringVar(value='Select a sequence to load it.');ttk.Label(right,textvariable=info,wraplength=430,style='Panel.TLabel').pack(fill='x',pady=(10,6))
+        controls=ttk.Frame(right,style='Panel.TFrame');controls.pack(fill='x',pady=4)
         blend=tk.IntVar(value=0)
-        ttk.Label(controls,text='Blend').pack(side='left')
+        ttk.Label(controls,text='Blend',style='Muted.Panel.TLabel').pack(side='left')
         self._blend_choice=ttk.Spinbox(controls,from_=0,to=0,textvariable=blend,width=5)
         self._blend_choice.pack(side='left',padx=4)
         play=ttk.Button(controls,text='Play',state='disabled');play.pack(side='left',padx=4)
         position=tk.DoubleVar(value=0)
-        timeline=ttk.Scale(right,variable=position,state='disabled');timeline.pack(fill='x',pady=4)
-        footer=ttk.Frame(window);footer.pack(fill='x',padx=8,pady=8)
+        timeline=ttk.Scale(right,variable=position,state='disabled',style='Panel.Horizontal.TScale');timeline.pack(fill='x',pady=(8,4))
+        footer=ttk.Frame(window,padding=(16,10,16,14));footer.pack(fill='x')
         details=tk.BooleanVar(value=False)
-        ttk.Checkbutton(footer,text='Details',variable=details,
+        ttk.Checkbutton(footer,text='Show GUID and link columns',variable=details,
             command=lambda:table.configure(displaycolumns=('name','guid','link','source') if details.get() else ('name','source'))).pack(side='left')
         layout_timer=window.after(100,lambda:body.sashpos(0,int(body.winfo_width()*.56)))
         use=ttk.Button(footer,text='Use animation',state='disabled',style='Accent.TButton');use.pack(side='right')
@@ -1161,7 +1411,7 @@ class ApexAssetStudioApp(tk.Tk):
         table.bind('<Button-1>',lambda e:'break' if self._busy else None)
         table.bind('<KeyPress>',lambda e:'break' if self._busy else None)
         self._blend_choice.configure(command=load);self._blend_choice.bind('<Return>',load)
-        ttk.Button(controls,text='Retry',command=load).pack(side='left')
+        ttk.Button(controls,text='Reload',style='Ghost.Panel.TButton',command=load).pack(side='left')
         table.bind('<Double-1>',load)
 
     def _apply_animation(self,clip):
