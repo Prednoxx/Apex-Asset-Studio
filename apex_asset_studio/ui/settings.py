@@ -158,7 +158,7 @@ class SettingsPage:
             appearance.ACTIVE['style'] = name  # tokens() and fx() read the active theme
             try:
                 p = appearance.tokens(spec['colors']); f = appearance.fonts(self, name); m = appearance.fx()
-                image = gloss.backdrop(m['backdrop'], (W, H), p, base=p['background'], energy=.85, seed=7)
+                image = gloss.backdrop(m['backdrop'], (W, H), p, base=p['background'], energy=.85)
                 image = gloss.glass(image, (8, H - 70, W - 8, H - 8), p['surface'], radius=10, blur=8, tint_alpha=190)
                 radius = None if m['radius'] is None else m['radius'] + 2
                 for i, (width, color) in enumerate(((58, p['accent']), (44, gloss.shade(p['raised'], .1 if not p['light'] else -.03)), (50, gloss.shade(p['raised'], .1 if not p['light'] else -.03)))):
@@ -181,7 +181,7 @@ class SettingsPage:
     def _viewport_painter(self, w, h, message):
         """Backdrop art for the 3D viewport, with any empty-state message on a small glass card."""
         t = self.tokens
-        image = gloss.backdrop(appearance.fx()['backdrop'], (w, h), t, base=t['viewport'], energy=.6, seed=11)
+        image = gloss.backdrop(appearance.fx()['backdrop'], (w, h), t, base=t['viewport'], energy=.6)
         if message:
             headline, _, rest = message.partition('\n\n')
             image = gloss.caption(image, headline if rest else '', rest or headline, t, appearance.ACTIVE['scale'])

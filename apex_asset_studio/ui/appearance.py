@@ -1,7 +1,7 @@
 """Validated, atomically saved appearance preferences and the glossy ttk theme.
 
-Every theme belongs to the same Frutiger-era family (glass, gloss and light) and differs in palette, type and
-its backdrop art: Aero ribbons, glacier ice, Aqua bubbles, Eco hills, a Metro skyline or Aurora curtains.
+Every theme belongs to the same Frutiger-era family (glass, gloss and light) and differs in palette, type, button
+shape and its background picture (resources/backgrounds).
 """
 import json
 import re
@@ -39,29 +39,32 @@ def _theme(blurb, colors, backdrop, radius=6, shine=1.0, mascot_accent=False, fo
 
 
 STYLES = {
-    'Aero Night': _theme('Dark glass and light ribbons in your mascot’s color.',
-        dict(background='#0b0d12', surface='#11141b', raised='#1b202b', border='#2b3240', text='#eef1f6',
-             muted='#a3acba', accent='#e2373f', accent2='#ff8a3c', viewport='#0a0c10'), 'aero', mascot_accent=True),
-    'Aero Day': _theme('Bright sky glass in your mascot’s color.',
-        dict(background='#e9eff6', surface='#fbfcfe', raised='#f0f4f9', border='#cdd7e3', text='#18202c',
-             muted='#4f5b6c', accent='#d42e38', accent2='#d9681a', viewport='#e4ebf3'), 'aero', mascot_accent=True),
-    'Glacier': _theme('Frosted ice shards and crisp white.',
-        dict(background='#e6f2f8', surface='#f8fcfe', raised='#ecf5fa', border='#c3dae6', text='#0f2533',
-             muted='#46657a', accent='#1593c9', accent2='#3fbfb4', viewport='#e2eff6'), 'glacier', radius=4),
-    'Frutiger Aqua': _theme('Light rays, bubbles and gel buttons.',
-        dict(background='#dcedf8', surface='#f5fafd', raised='#e4f1fa', border='#b5d4e8', text='#0b2234',
-             muted='#405f77', accent='#0b7fd0', accent2='#1fb5dc', viewport='#d6eaf7'), 'aqua', radius=None),
-    'Frutiger Eco': _theme('Green hills under a sunny sky.',
+    'Aero Night': _theme('Violet glass in your mascot’s color.',
+        dict(background='#0e0b16', surface='#141020', raised='#1e1830', border='#302746', text='#efecf6',
+             muted='#a9a1bd', accent='#e2373f', accent2='#ff8a3c', viewport='#0c0a13'), 'aero_night.jpg', mascot_accent=True),
+    'Aero Day': _theme('Blue glass in your mascot’s color.',
+        dict(background='#e7eef8', surface='#fbfcfe', raised='#eff4fa', border='#c9d6e6', text='#16202d',
+             muted='#4d5a6c', accent='#d42e38', accent2='#d9681a', viewport='#e2eaf5'), 'aero_day.jpg', mascot_accent=True),
+    'Frutiger Aqua': _theme('Sunlit water and gel buttons.',
+        dict(background='#dcf0f6', surface='#f5fbfd', raised='#e4f3f8', border='#b2d8e4', text='#0a2430',
+             muted='#3d6170', accent='#0a85b8', accent2='#1fb5c9', viewport='#d4ecf4'), 'aqua.jpg', radius=None),
+    'Frutiger Eco': _theme('A meadow and city in summer.',
         dict(background='#ecf4e4', surface='#fbfdf8', raised='#eef5e6', border='#c6dcb2', text='#1a2a12',
-             muted='#4b6140', accent='#3f9b22', accent2='#2a8fc9', viewport='#e7f1dd'), 'eco', radius=8,
+             muted='#4b6140', accent='#3f9b22', accent2='#2a8fc9', viewport='#e7f1dd'), 'eco.jpg', radius=8,
         fonts=_fontset(head=_ECO_HEAD, title=_ECO_HEAD)),
-    'Frutiger Metro': _theme('A glass skyline at night, sharp corners.',
-        dict(background='#0a111c', surface='#0f1826', raised='#172334', border='#26364c', text='#edf3fa',
-             muted='#9cadc3', accent='#1d84f0', accent2='#16c2b0', viewport='#09101a'), 'metro', radius=2, shine=.55,
+    'Frutiger Metro': _theme('Glass towers, sharp corners.',
+        dict(background='#e4f1f6', surface='#f7fbfd', raised='#eaf4f8', border='#bfd8e3', text='#0e2430',
+             muted='#43616f', accent='#1a7fa8', accent2='#2f6fd6', viewport='#dfeef4'), 'metro.jpg', radius=2, shine=.55,
         fonts=_fontset(title=_METRO_TITLE, title_size=20)),
-    'Aurora': _theme('Northern lights over a dark sky.',
-        dict(background='#070d10', surface='#0c161b', raised='#14222a', border='#22353f', text='#e8f5f3',
-             muted='#91acae', accent='#25b366', accent2='#3a9df0', viewport='#060c0f'), 'aurora'),
+    'Aurora': _theme('Emerald light and butterflies.',
+        dict(background='#06120d', surface='#0b1a13', raised='#12261c', border='#1f3a2c', text='#e6f5ee',
+             muted='#8fb3a2', accent='#1fb36a', accent2='#4fd1c5', viewport='#05100b'), 'aurora.jpg'),
+    'Sunburst': _theme('Golden rays on deep olive.',
+        dict(background='#14110a', surface='#1b170d', raised='#262012', border='#3a321c', text='#f7f1df',
+             muted='#b8ad8c', accent='#e2b100', accent2='#ffd54a', viewport='#110e08'), 'sunburst.jpg'),
+    'Sweetheart': _theme('Magenta rays and red hearts.',
+        dict(background='#170c1c', surface='#1f1026', raised='#2b1735', border='#43264f', text='#fbeefc',
+             muted='#c4a5c9', accent='#e8304a', accent2='#d660e0', viewport='#140a18'), 'sweetheart.jpg', radius=None),
 }
 DEFAULT_STYLE = 'Aero Night'
 STYLE_ORDER = list(STYLES)
@@ -197,6 +200,7 @@ def tokens(colors):
     t['faint'] = readable(t['faint'], t['surface'], 4.5 if hc else 3.0, t['text'])
     t['selection'] = mix(t['accent'], t['surface'], .62 if not t['light'] else .22)
     t['selection_text'] = '#ffffff' if contrast('#ffffff', t['selection']) >= contrast(t['text'], t['selection']) else t['text']
+    t['selection'] = readable(t['selection'], t['selection_text'], 4.5, t['surface'])  # bright accents: deepen the bar
     t['accent_text'] = '#ffffff' if contrast('#ffffff', t['accent']) >= 3.6 else '#141414'
     t['hover'] = mix(t['accent'], t['raised'], .14)
     return t

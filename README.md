@@ -34,7 +34,7 @@ Code layout: `rpak/` reads game packages, `export/` writes GLB/glTF/CAST, `blend
 | `advanced.py` | Advanced page: asset explorer, string search, diagnostics |
 | `settings.py` | Settings page and applying the appearance |
 | `appearance.py` | Themes, color tokens, saved preferences, ttk styling |
-| `gloss.py` | Generated art: glossy controls, glass, and each theme's backdrop |
+| `gloss.py` | Generated art: glossy controls, glass, and each theme's background picture (`resources/backgrounds`) |
 | `widgets.py` | Header bar, section headings, primary button |
 | `preview.py` | OpenGL viewport |
 

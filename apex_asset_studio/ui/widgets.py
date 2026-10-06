@@ -145,7 +145,7 @@ class HeaderBar(tk.Canvas):
         m = appearance.fx()
         key = (w, h, m['backdrop'], tuple(sorted((k, v) for k, v in t.items() if isinstance(v, str))))
         if key == self._bg_key: return
-        image = gloss.backdrop(m['backdrop'], (w, h), t, base=t['background'], energy=.5, seed=3)
+        image = gloss.backdrop(m['backdrop'], (w, h), t, base=t['background'], energy=.35)
         sheen = gloss._vgradient((w, h // 2), (255, 255, 255, 26 if not t['light'] else 80), (255, 255, 255, 0))
         image.alpha_composite(sheen)
         self._bg = ImageTk.PhotoImage(image, master=self); self._bg_key = key

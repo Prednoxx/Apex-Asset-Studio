@@ -40,9 +40,9 @@ BLENDER
   glTF in the export.
 
 SETTINGS
-- Themes: Aero Night, Aero Day, Glacier, Frutiger Aqua, Frutiger Eco,
-  Frutiger Metro and Aurora. The Aero themes take their accent color from
-  the mascot.
+- Themes: Aero Night, Aero Day, Frutiger Aqua, Frutiger Eco, Frutiger Metro,
+  Aurora, Sunburst and Sweetheart, each with its own background picture. The
+  Aero themes take their accent color from the mascot.
 - Text size, high contrast, reduced effects, keyboard shortcuts and the
   mascot image are also in Settings.
 

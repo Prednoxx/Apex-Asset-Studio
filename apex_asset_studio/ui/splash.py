@@ -31,7 +31,7 @@ class StartupSplash(tk.Toplevel):
         c = self.canvas = tk.Canvas(self, width=W, height=H, background=t['background'], highlightthickness=0)
         c.place(x=1, y=1)
         light = t['light']
-        bg = gloss.backdrop(m['backdrop'], (W, H), t, base=t['background'], energy=1.0, seed=5)
+        bg = gloss.backdrop(m['backdrop'], (W, H), t, base=t['background'], energy=1.0)
         path = Path(logo_path) if logo_path else Path(__file__).resolve().parents[1]/'resources'/'asuka.webp'
         try:
             art = _art(path, (int(W * .48), H))
