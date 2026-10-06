@@ -2,6 +2,9 @@
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"  ; build_windows.bat passes the real version
 #endif
+#ifndef StageDir
+  #define StageDir "..\build\stage\ApexAssetStudio"  ; build_windows.bat passes the real path
+#endif
 #define MyAppPublisher "Apex Asset Studio"
 #define MyAppExeName "ApexAssetStudio.exe"
 
@@ -13,7 +16,7 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={localappdata}\Programs\Apex Asset Studio
 PrivilegesRequired=lowest
 DefaultGroupName={#MyAppName}
-OutputDir=..\dist\installer
+OutputDir=..\..
 OutputBaseFilename=ApexAssetStudio_Setup_{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
@@ -21,7 +24,7 @@ WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Files]
-Source: "..\dist\native-preview\ApexAssetStudio\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\Apex Asset Studio"; Filename: "{app}\{#MyAppExeName}"

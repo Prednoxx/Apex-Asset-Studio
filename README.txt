@@ -45,7 +45,7 @@ EXPORT
   Everything) to set formats and options in one go. "Save..." stores your
   current options as your own preset; "Delete" removes it. The list shows
   "Custom" when your options don't match any preset.
-- Exports go to the Exports folder (beside the EXE, or the master folder's
+- Exports go to the Exports folder beside the EXE (the master folder's
   Exports when run from source), in a folder per Legend or weapon:
   Exports\Wraith\Wraith - Airship Assassin - Full body\
 - Batch: Ctrl-click or Shift-click several skins and press "Export N skins",

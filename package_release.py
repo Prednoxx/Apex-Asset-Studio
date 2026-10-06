@@ -9,32 +9,21 @@ from zipfile import ZipFile, ZIP_DEFLATED
 from apex_asset_studio import __version__ as VERSION
 
 
-def archive_tree(source,output,prefix):
-    with ZipFile(output,'w',ZIP_DEFLATED,compresslevel=6) as archive:
-        for path in sorted(source.rglob('*')):
-            if path.is_file(): archive.write(path,Path(prefix)/path.relative_to(source))
-    with ZipFile(output) as archive:
-        bad=archive.testzip()
-        if bad: raise RuntimeError('ZIP integrity failure: '+bad)
-
-
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--destination',required=True);args=parser.parse_args()
     root=Path(__file__).resolve().parent;out=Path(args.destination).resolve();out.mkdir(parents=True,exist_ok=True)
-    app=root/'dist/native-preview/ApexAssetStudio'
-    if not (app/'ApexAssetStudio.exe').exists(): raise RuntimeError('Build the Windows EXE first')
-    for name in ['README.txt','LICENSE','THIRD_PARTY_NOTICES.md']:
-        shutil.copy2(root/name,app/name)
+    master=root.parent  # build_windows.bat puts ApexAssetStudio.exe and _internal in the master folder
+    if not (master/'ApexAssetStudio.exe').exists() or not (master/'_internal').is_dir():
+        raise RuntimeError('Build the Windows EXE first (Build portable app.bat)')
     addon=root/'blender_addon/ApexAssetStudio_Blender_5.2.zip'
-    shutil.copy2(addon,app/addon.name);shutil.copy2(addon,out/addon.name)
-    licenses=app/'third_party_licenses';licenses.mkdir(exist_ok=True)
+    shutil.copy2(addon,out/addon.name)
+    licenses={}
     for name in ['pyooz','Pillow','texture2ddecoder','pyinstaller','numpy','PyOpenGL','pyopengltk']:
         distribution=importlib.metadata.distribution(name)
         for item in distribution.files or []:
             if any(word in str(item).lower() for word in ('license','copying','notice')):
                 source=Path(distribution.locate_file(item))
-                if source.is_file():
-                    directory=licenses/name;directory.mkdir(exist_ok=True);shutil.copy2(source,directory/source.name)
+                if source.is_file(): licenses[f'third_party_licenses/{name}/{source.name}']=source
     sourcezip=out/f'ApexAssetStudio-{VERSION}-source.zip'
     with ZipFile(sourcezip,'w',ZIP_DEFLATED,compresslevel=6) as archive:
         files=[p for p in root.iterdir() if p.is_file() and p.suffix in ('.py','.bat','.md','.toml','.txt','.spec')]
@@ -44,7 +33,16 @@ def main():
         for path in sorted(set(files)): archive.write(path,Path('ApexAssetStudio-source')/path.relative_to(root))
     with ZipFile(sourcezip) as archive:
         if archive.testzip(): raise RuntimeError('Source ZIP integrity failure')
-    portable=out/f'ApexAssetStudio-{VERSION}-portable.zip';archive_tree(app,portable,'ApexAssetStudio')
+    portable=out/f'ApexAssetStudio-{VERSION}-portable.zip'
+    with ZipFile(portable,'w',ZIP_DEFLATED,compresslevel=6) as archive:
+        archive.write(master/'ApexAssetStudio.exe','ApexAssetStudio/ApexAssetStudio.exe')
+        for path in sorted((master/'_internal').rglob('*')):
+            if path.is_file(): archive.write(path,Path('ApexAssetStudio')/path.relative_to(master))
+        for name in ['README.txt','LICENSE','THIRD_PARTY_NOTICES.md']: archive.write(root/name,f'ApexAssetStudio/{name}')
+        archive.write(addon,f'ApexAssetStudio/{addon.name}')
+        for name,source in licenses.items(): archive.write(source,f'ApexAssetStudio/{name}')
+    with ZipFile(portable) as archive:
+        if archive.testzip(): raise RuntimeError('Portable ZIP integrity failure')
     paths=[portable,sourcezip,out/addon.name]
     (out/'SHA256SUMS.txt').write_text('\n'.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name for p in paths)+'\n')
     for path in paths: print(path,path.stat().st_size)
