@@ -1,0 +1,16 @@
+schema_version = "1.0.0"
+
+id = "apex_asset_studio"
+version = "0.4.0"
+name = "Apex Asset Studio"
+tagline = "Import Apex Asset Studio exports with materials, animations and preset lighting"
+maintainer = "Apex Asset Studio"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:AGPL-3.0-or-later"]
+tags = ["Import-Export", "Lighting"]
+
+[permissions]
+files = "Read the exported models, textures and .aas.json files you choose to import"

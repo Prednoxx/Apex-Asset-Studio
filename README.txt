@@ -37,11 +37,21 @@ EXPORT
 - CAST uses inches; glTF and GLB use metres. All are Y-up.
 
 BLENDER
-- Install ApexAssetStudio_Blender_5.2.zip in Blender 5.2, then use
-  File > Import > Apex Asset Studio (or the AAS sidebar) and pick the
-  .aas.json file. Materials are built on import. To add an animation to a model
-  you already imported, select its armature first. Blender import needs GLB or
-  glTF in the export.
+- Install ApexAssetStudio_Blender_5.2.zip in Blender 4.2 or newer:
+  Edit > Preferences > Get Extensions > (menu, top right) Install from Disk,
+  or drag the ZIP into Blender. Remove the old version first if you had one.
+- File > Import > Apex Asset Studio (or the AAS tab in the 3D view sidebar),
+  then pick the .aas.json file. Materials are built on import. To add an
+  animation to a model you already imported, select its armature first.
+  Blender import needs GLB or glTF in the export.
+- Lighting (AAS tab > Lighting): pick a preset and click Apply Lighting:
+  3-Point Studio, Rim Light, Dual Color (choose both colors), Sunrise,
+  Golden Hour, Daylight, Overcast Soft, Moonlight, Neon, Dramatic and
+  High-Key Product. Lights are sized to the model and aimed at it. After
+  applying, Intensity, Rotate and Background adjust the rig live, and
+  Remove takes it away and restores your previous world. Optional:
+  a shadow-catcher floor (Cycles) and a framed camera. "Light on import"
+  adds a preset automatically after every model import.
 
 SETTINGS
 - Themes: Aero Night, Aero Day, Frutiger Aqua, Frutiger Eco, Frutiger Metro,
