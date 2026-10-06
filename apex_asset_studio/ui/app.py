@@ -7,6 +7,7 @@ import os
 import queue
 import sys
 import threading
+import traceback
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -72,8 +73,8 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, Thumbnails, Adva
         if splash: splash.stage('Detecting Apex…')
         self._auto_detect()
         if splash: splash.stage('Loading library…')
-        self.refresh_all_views()
         for tree in (self.simple_assets, self.asset_table, self.string_table): make_sortable(tree)
+        self.refresh_all_views()
         if not self.catalog.index_outdated:  # one-time additions for libraries scanned by older versions
             threading.Thread(target=self.catalog.ensure_animation_links, daemon=True).start()
             def release_info():
@@ -481,5 +482,27 @@ def main():
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('ApexAssetStudio.Desktop')
         except (OSError, AttributeError):
             pass
-    app = ApexAssetStudioApp()
+    try:
+        app = ApexAssetStudioApp()
+    except Exception:
+        # The window never appeared. Without this, a windowed EXE would just silently not open.
+        _startup_failed(traceback.format_exc()); raise
     app.mainloop()
+
+
+def _startup_failed(details):
+    """Write the error where the user can find it and say so in a message box."""
+    folder = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".apex_asset_studio")) / "ApexAssetStudio" / "logs"
+    log = folder / 'startup-error.txt'
+    try:
+        folder.mkdir(parents=True, exist_ok=True); log.write_text(details, encoding='utf-8')
+    except OSError:
+        log = None
+    try:
+        from tkinter import messagebox
+        root = tk.Tk(); root.withdraw()
+        messagebox.showerror('Apex Asset Studio', "Apex Asset Studio couldn't start.\n\n" + details.strip().splitlines()[-1]
+                             + (f'\n\nFull details: {log}' if log else ''), parent=root)
+        root.destroy()
+    except Exception:
+        pass

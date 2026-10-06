@@ -28,3 +28,26 @@ class ScanEtaTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SortBeforeSortableTest(unittest.TestCase):
+    """The library can be sorted while the window is still being built (real libraries load during startup)."""
+    def test_sort_tree_without_make_sortable(self):
+        try:
+            import tkinter as tk
+            from tkinter import ttk
+            root = tk.Tk()
+        except Exception:
+            self.skipTest('no display')
+        try:
+            from apex_asset_studio.ui.common import sort_tree, make_sortable
+            tree = ttk.Treeview(root, columns=('name', 'season'))
+            tree.heading('name', text='Name'); tree.heading('season', text='Season')
+            for name, season in (('b', 'S3'), ('a', '—'), ('c', 'S20')): tree.insert('', 'end', values=(name, season))
+            sort_tree(tree, 'season', reverse=True)
+            self.assertEqual([tree.set(i, 'name') for i in tree.get_children()], ['c', 'b', 'a'])
+            self.assertEqual(tree.heading('season', 'text'), 'Season ▼')
+            make_sortable(tree)
+            self.assertEqual(tree._titles['season'], 'Season')
+        finally:
+            root.destroy()

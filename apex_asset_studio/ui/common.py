@@ -51,14 +51,17 @@ def sort_tree(tree, column, reverse=False):
     blank = [(None, iid) for v, iid in rows if v in ('', '—')]
     for index, (_k, iid) in enumerate(filled + blank): tree.move(iid, '', index)
     tree._sort = (column, reverse)
+    titles = getattr(tree, '_titles', None)
+    if titles is None:  # sorted before make_sortable ran: take the headings as they are, minus any arrow
+        titles = tree._titles = {col: str(tree.heading(col, 'text')).removesuffix(' ▲').removesuffix(' ▼') for col in tree['columns']}
     for col in tree['columns']:
-        tree.heading(col, text=tree._titles[col] + ((' ▼' if reverse else ' ▲') if col == column else ''))
+        tree.heading(col, text=titles.get(col, col) + ((' ▼' if reverse else ' ▲') if col == column else ''))
 
 
 def make_sortable(tree):
     """Click a column heading to sort by it; click again to reverse. Numbers, seasons and rarities sort naturally."""
-    tree._sort = None
-    tree._titles = {col: tree.heading(col, 'text') for col in tree['columns']}
+    tree._sort = getattr(tree, '_sort', None)
+    if getattr(tree, '_titles', None) is None: tree._titles = {col: tree.heading(col, 'text') for col in tree['columns']}
     def click(column):
         sort_tree(tree, column, reverse=tree._sort == (column, False))
         if hasattr(tree, 'on_sort'): tree.on_sort(column, tree._sort[1])
