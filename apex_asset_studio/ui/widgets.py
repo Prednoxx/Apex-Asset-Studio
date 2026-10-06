@@ -125,7 +125,7 @@ class GlossButton(_Base):
         if int(self.cget('height')) != want: self.configure(height=want)
         w, h = max(self.winfo_width(), int(self.cget('width')) if self.winfo_width() < 20 else 1), want
         state = 'disabled' if self._disabled else 'pressed' if self._pressed else 'hover' if self._hover else 'normal'
-        color = gloss.shade(t['raised'], .06 if not t['light'] else -.02) if self._disabled else t['accent']
+        color = gloss.shade(t['raised'], .06 if not t['light'] else -.02) if self._disabled else t['accent_fill']
         self._img = ImageTk.PhotoImage(_plate(w, h, color, 'normal' if self._disabled else state, dark=not t['light']), master=self)
         self.create_image(0, 0, image=self._img, anchor='nw')
         self.create_text(w / 2, h / 2, text=self.text, fill=t['faint'] if self._disabled else t['accent_text'], font=f['strong'])
@@ -158,13 +158,22 @@ class HeaderBar(tk.Canvas):
         sheen = gloss._vgradient((w, h // 2), (255, 255, 255, 26 if not t['light'] else 80), (255, 255, 255, 0))
         image.alpha_composite(sheen)
         self._bg = ImageTk.PhotoImage(image, master=self); self._bg_key = key
+        # Secondary header text sits on the picture: lighten/darken it until it reads on the busiest part of it.
+        from PIL import ImageStat
+        lighter_text = appearance.luminance(t['text']) > .5
+        worst = '#000000'
+        for x0 in range(0, w, 80):
+            stat = ImageStat.Stat(image.crop((x0, 0, min(w, x0 + 80), h)).convert('RGB'))
+            c = '#%02x%02x%02x' % tuple(min(255, max(0, int(m + (1.5 * sd if lighter_text else -1.5 * sd)))) for m, sd in zip(stat.mean, stat.stddev))
+            if worst == '#000000' or appearance.contrast(t['muted'], c) < appearance.contrast(t['muted'], worst): worst = c
+        self._muted = appearance.readable(t['muted'], worst, 4.5, t['text'])
 
     def redraw(self, t):
         self.t = t; self.delete('all'); self.hits = []
         f = appearance.fonts(self); w = max(self.winfo_width(), 1); dark = not t['light']
         h = max(self.HEIGHT, _line(f['brand']) + _line(f['small']) + 22, _line(f['nav']) + 30)
         if int(self.cget('height')) != h: self.configure(height=h)
-        self._background(t, w, h)
+        self._background(t, w, h); muted = getattr(self, '_muted', t['muted'])
         self.create_image(0, 0, image=self._bg, anchor='nw')
         self.create_line(0, h - 1, w, h - 1, fill=appearance.mix(t['accent'], t['border'], .35))
         x = 14
@@ -172,16 +181,16 @@ class HeaderBar(tk.Canvas):
         if orb: self.create_image(x, h / 2, image=orb, anchor='w'); x += orb.width() + 12
         block = _line(f['brand']) + _line(f['small']); top = (h - block) / 2
         self.create_text(x, top, text='Apex Asset Studio', anchor='nw', fill=t['text'], font=f['brand'])
-        self.create_text(x + 1, top + _line(f['brand']), text=f"v{AVATAR.get('version', '')}", anchor='nw', fill=t['muted'], font=f['small'])
+        self.create_text(x + 1, top + _line(f['brand']), text=f"v{AVATAR.get('version', '')}", anchor='nw', fill=muted, font=f['small'])
         x += _measure(f['brand'], 'Apex Asset Studio') + 34
         self._pills = []
         for key, label, active in self.cb['pages']():
             tw = _measure(f['nav'], label) + 30; ph = _line(f['nav']) + 14; y0 = (h - ph) / 2
             if active or self.hover == ('page', key):
-                color = t['accent'] if active else gloss.shade(t['raised'], .12 if dark else -.03)
+                color = t['accent_fill'] if active else gloss.shade(t['raised'], .12 if dark else -.03)
                 img = ImageTk.PhotoImage(_plate(tw, ph, color, dark=dark), master=self)
                 self._pills.append(img); self.create_image(x, y0, image=img, anchor='nw')
-            ink = t['accent_text'] if active else (t['text'] if self.hover == ('page', key) else t['muted'])
+            ink = t['accent_text'] if active else (t['text'] if self.hover == ('page', key) else muted)
             self.create_text(x + tw / 2, h / 2, text=label, fill=ink, font=f['nav'])
             self.hits.append(((x, y0, x + tw, y0 + ph), ('page', key))); x += tw + 6
         # right side: scan button then game status
@@ -194,7 +203,7 @@ class HeaderBar(tk.Canvas):
         if enabled: self.hits.append(((bx, by, bx + bw, by + bh), ('scan',)))
         ok, game = self.cb['game']()
         gx = bx - 16
-        self.create_text(gx, h / 2, text=game, anchor='e', fill=t['text'] if self.hover == ('game',) else t['muted'], font=f['small'])
+        self.create_text(gx, h / 2, text=game, anchor='e', fill=t['text'] if self.hover == ('game',) else muted, font=f['small'])
         gw = _measure(f['small'], game)
         self.create_oval(gx - gw - 16, h / 2 - 4, gx - gw - 8, h / 2 + 4, fill=t['accent2'] if ok else t['warn'], outline='')
         self.hits.append(((gx - gw - 18, h / 2 - 12, gx, h / 2 + 12), ('game',)))
@@ -262,7 +271,17 @@ class Tooltip:
     def __init__(self, widget, text):
         self.widget = widget; self.text = text; self.job = None; self.tip = None
         widget.bind('<Enter>', self._enter, add='+'); widget.bind('<Leave>', self._hide, add='+')
-        widget.bind('<ButtonPress>', self._hide, add='+'); widget.bind('<FocusOut>', self._hide, add='+')
+        widget.bind('<ButtonPress>', self._pressed, add='+'); widget.bind('<FocusOut>', self._hide, add='+')
+        widget.bind('<FocusIn>', self._focus, add='+')  # keyboard users get the hint too
+        self.clicked = 0.0
+
+    def _pressed(self, _e=None):
+        import time
+        self.clicked = time.monotonic(); self._hide()
+
+    def _focus(self, _e=None):
+        import time
+        if time.monotonic() - self.clicked > .4: self._enter()  # focus from Tab, not from a click
 
     def _enter(self, _e=None):
         self._cancel(); self.job = self.widget.after(500, self._show)

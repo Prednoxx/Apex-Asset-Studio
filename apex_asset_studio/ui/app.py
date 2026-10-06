@@ -110,7 +110,7 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, AdvancedPage, Se
         self.settings_tab = ttk.Frame(self.tabs)
         self.page_tabs = (self.library_tab, self.advanced_tab, self.settings_tab)
         for tab, label in zip(self.page_tabs, self.PAGES): self.tabs.add(tab, text=label)
-        self.tabs.bind('<<NotebookTabChanged>>', lambda _e: self._refresh_header())
+        self.tabs.bind('<<NotebookTabChanged>>', lambda _e: (self._refresh_header(), self._draw_cards_if_visible()))
         self._build_library()
         self._build_advanced()
         self._build_settings()
@@ -361,7 +361,7 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, AdvancedPage, Se
                 elif event[0] == 'string_results':
                     self._show_string_results(*event[1:])
                 elif event[0] == 'cosmetics_updated':
-                    if not self._busy and not self._scanning: self._search_simple()
+                    if not self._busy and not self._scanning: self._search_simple(force=True)
                 elif event[0] == 'problem':
                     self._record_problem(*event[1:])
                 elif event[0] == 'batch_progress':

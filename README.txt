@@ -27,7 +27,8 @@ BROWSE
 - Clicking another skin while one is loading cancels the first load. Only the
   most detailed LOD loads at first; other LODs load when you pick them.
 - In the preview: drag to rotate, Shift-drag or right-drag to pan, scroll to
-  zoom, R to reset the view.
+  zoom, R to reset the view. With the keyboard: Tab to the preview (it gets a
+  colored outline), then arrow keys rotate, Shift+arrows pan and + / - zoom.
 
 ANIMATIONS
 - "Browse animations" lists the clips that belong to the model. Pick one to
@@ -97,6 +98,17 @@ SETTINGS
   Aero themes take their accent color from the mascot.
 - Text size, high contrast, reduced effects, keyboard shortcuts and the
   mascot image are also in Settings.
+
+KEYBOARD AND ACCESSIBILITY
+- Everything can be reached with Tab / Shift+Tab; hovering or tabbing to a
+  control shows its hint. Down arrow in the search box jumps into the list;
+  Ctrl+A in the list selects every listed skin (for a batch export).
+- Theme cards: Tab to a card and press Enter or Space to use it.
+- Ctrl+1/2/3 switch pages, Ctrl+F searches, F5 scans, Ctrl+E exports,
+  Ctrl + / Ctrl - change the text size, Space plays or pauses.
+- Text meets WCAG AA contrast (AAA with High contrast) in every theme,
+  including rarity colors, warnings, button labels and messages drawn over
+  the background pictures.
 
 ADVANCED
 - Assets: every indexed game asset, searchable by name, GUID or container.

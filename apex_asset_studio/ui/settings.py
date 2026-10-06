@@ -63,9 +63,13 @@ class SettingsPage:
         themes = section('Theme', 'Glossy looks from the Frutiger Aero era. Click one to use it.')
         self.preset_cards = {}
         for index, name in enumerate(appearance.STYLE_ORDER):
-            card = tk.Canvas(themes, width=self.CARD[0], height=self.CARD[1], highlightthickness=2, cursor='hand2', borderwidth=0)
+            card = tk.Canvas(themes, width=self.CARD[0], height=self.CARD[1], highlightthickness=3, cursor='hand2', borderwidth=0,
+                             takefocus=1)
             card.grid(row=index // 4, column=index % 4, padx=(0, 14), pady=(0, 14), sticky='w')
             card.bind('<Button-1>', lambda _e, n=name: self._choose_theme(n))
+            for key in ('<Return>', '<KP_Enter>', '<space>'):  # Tab to a card, Enter or Space to use it
+                card.bind(key, lambda _e, n=name: (self._choose_theme(n), 'break')[-1])
+            widgets.tip(card, f'{name}: {appearance.STYLES[name]["blurb"]} Press Enter to use it.')
             self.preset_cards[name] = card
         self.custom_theme_label = ttk.Label(body, text='', style='Muted.TLabel')
         self.custom_theme_label.pack(anchor='w', pady=(8, 0))
@@ -154,6 +158,21 @@ class SettingsPage:
 
     CARD = (264, 156)
 
+    def _draw_cards_if_visible(self):
+        """The theme cards are only drawn while Settings is open (they're the slowest thing to paint)."""
+        if getattr(self, '_cards_dirty', True) and hasattr(self, 'tabs') and self.tabs.select() == str(self.settings_tab):
+            self._cards_dirty = False; self._draw_preset_cards()
+
+    def _draw_card_text(self, card, name, spec, p, f, t, chosen, W, H):
+        card.delete('all')
+        # highlightcolor is the keyboard-focus ring: the app's text color, so it stands out from the chosen ring
+        card.configure(background=p['background'], highlightbackground=t['accent'] if chosen else t['border'],
+                       highlightcolor=t['text'])
+        card.create_image(0, 0, image=self._card_images[name], anchor='nw')
+        card.create_text(20, H - 60, text=name, anchor='nw', fill=p['text'], font=f['strong'])
+        card.create_text(20, H - 38, text=spec['blurb'], anchor='nw', width=W - 128, fill=p['muted'], font=f['small'])
+        card.create_text(W - 20 - 38, H - 20 - 12, text='In use' if chosen else 'Use', fill=p['accent_text'], font=f['small'])
+
     def _draw_preset_cards(self):
         """Each card is a miniature of its theme: its backdrop art, a glass panel, its fonts and button shape."""
         t = self.tokens; active = appearance.ACTIVE['style']; W, H = self.CARD
@@ -163,21 +182,23 @@ class SettingsPage:
             appearance.ACTIVE['style'] = name  # tokens() and fx() read the active theme
             try:
                 p = appearance.tokens(spec['colors']); f = appearance.fonts(self, name); m = appearance.fx()
+                # A card's picture only depends on its theme's colors and effects, so it is painted once and reused
+                # (switching themes then only re-colors the rings and labels).
+                cache = self.__dict__.setdefault('_card_cache', {})
+                cache_key = (name, tuple(sorted((k, v) for k, v in p.items() if isinstance(v, str))), tuple(sorted(m.items())))
+                if cache_key in cache:
+                    self._card_images[name] = cache[cache_key]
+                    self._draw_card_text(card, name, spec, p, f, t, chosen, W, H)
+                    continue
                 image = gloss.backdrop(m['backdrop'], (W, H), p, base=p['background'], energy=.85)
-                image = gloss.glass(image, (8, H - 70, W - 8, H - 8), p['surface'], radius=10, blur=8, tint_alpha=190)
+                image = gloss.readable_glass(image, (8, H - 70, W - 8, H - 8), p, p['muted'], 4.5, 10, 8, 190)
                 radius = None if m['radius'] is None else m['radius'] + 2
                 for i, (width, color) in enumerate(((58, p['accent']), (44, gloss.shade(p['raised'], .1 if not p['light'] else -.03)), (50, gloss.shade(p['raised'], .1 if not p['light'] else -.03)))):
                     image.alpha_composite(gloss.pill(width, 20, color, radius=radius, dark=not p['light'], shine=m['shine']), (12 + i * 64 if i < 2 else 12 + 58 + 6 + 44 + 6, 12))
-                button = gloss.pill(76, 24, p['accent'], radius=radius, dark=not p['light'], shine=m['shine'])
+                button = gloss.pill(76, 24, p['accent_fill'], radius=radius, dark=not p['light'], shine=m['shine'])
                 image.alpha_composite(button, (W - 8 - 12 - 76, H - 8 - 12 - 24))
-                self._card_images[name] = ImageTk.PhotoImage(image, master=card)
-                card.delete('all')
-                card.configure(background=p['background'], highlightbackground=t['accent'] if chosen else t['border'],
-                               highlightcolor=t['accent'] if chosen else t['border'])
-                card.create_image(0, 0, image=self._card_images[name], anchor='nw')
-                card.create_text(20, H - 60, text=name, anchor='nw', fill=p['text'], font=f['strong'])
-                card.create_text(20, H - 38, text=spec['blurb'], anchor='nw', width=W - 128, fill=p['muted'], font=f['small'])
-                card.create_text(W - 20 - 38, H - 20 - 12, text='In use' if chosen else 'Use', fill=p['accent_text'], font=f['small'])
+                self._card_images[name] = cache[cache_key] = ImageTk.PhotoImage(image, master=card)
+                self._draw_card_text(card, name, spec, p, f, t, chosen, W, H)
             finally:
                 appearance.ACTIVE['style'] = active
         custom = self.appearance['preset'] == 'Custom'
@@ -199,7 +220,7 @@ class SettingsPage:
         self.tokens = c = appearance.apply(self, self.appearance)
         f = appearance.fonts(self)
         self.simple_tree.tag_configure('category', foreground=c['muted'], font=f['strong'])
-        self.simple_assets.tag_configure('muted', foreground=c['faint'])
+        self.simple_assets.tag_configure('muted', foreground=c['muted'])
         for rarity, color in appearance.rarity(c).items(): self.simple_assets.tag_configure(rarity, foreground=color)
         self.preview.set_palette(c['viewport']); self.preview.set_backdrop(self._viewport_painter)
         sky = appearance.mix(c['accent2'], '#ffffff', .25) if c['light'] else appearance.mix(c['accent2'], '#c8d0dc', .2)
@@ -207,7 +228,7 @@ class SettingsPage:
         self.preview.set_lighting(sky, ground, appearance.mix(c['accent2'], '#ffffff', .5), c['light'])
         self._scale_columns()
         widgets.refresh(self, c)
-        self._draw_preset_cards(); self._apply_layout(); self._load_mascot(); self._fit_window()
+        self._cards_dirty = True; self._draw_cards_if_visible(); self._apply_layout(); self._load_mascot(); self._fit_window()
         if save:
             try:
                 appearance.save(self.appearance_path, self.appearance)
@@ -321,16 +342,21 @@ class SettingsPage:
     def _load_mascot(self):
         path = Path(self.appearance['mascot_path']) if self.appearance['mascot_path'] else Path(__file__).resolve().parents[1]/'resources'/'asuka.webp'
         try:
-            with Image.open(path) as image:
-                image = image.convert('RGBA')
+            stamp = (str(path), path.stat().st_mtime_ns)
+            if getattr(self, '_mascot_cache', (None,))[0] != stamp:  # decode the picture once, not on every theme change
+                with Image.open(path) as picture: image = picture.convert('RGBA')
                 portrait = image.copy(); portrait.thumbnail((180, 240), Image.Resampling.LANCZOS)
+                self._mascot_cache = (stamp, image)
                 self._mascot_portrait_image = ImageTk.PhotoImage(portrait)
-                self._orb_image = ImageTk.PhotoImage(gloss.orb(42, appearance.face_crop(image, not self.appearance['mascot_path']), self.tokens['accent']))
-                widgets.AVATAR['orb'] = self._orb_image if self.appearance['show_mascot'] else None
-                widgets.AVATAR['version'] = APP_VERSION
-            self.mascot_portrait.configure(image=self._mascot_portrait_image)
+                self.mascot_portrait.configure(image=self._mascot_portrait_image)
+            image = self._mascot_cache[1]
+            self._orb_image = ImageTk.PhotoImage(gloss.orb(42, appearance.face_crop(image, not self.appearance['mascot_path']), self.tokens['accent']))
+            widgets.AVATAR['orb'] = self._orb_image if self.appearance['show_mascot'] else None
+            widgets.AVATAR['version'] = APP_VERSION
             self._refresh_header()
-            self._set_window_icon(image)
+            # The window icon (several sizes) isn't needed to show the new theme, so make it right after.
+            if getattr(self, '_icon_job', None): self.after_cancel(self._icon_job)
+            self._icon_job = self.after(150, lambda i=image: self._set_window_icon(i))
         except (OSError, ValueError):
             self.appearance_status.configure(text='Mascot image not found or unsupported.')
 

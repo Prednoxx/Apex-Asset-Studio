@@ -12,13 +12,21 @@ class StarPakEntry:
     size: int
 
 
+_INDEX_CACHE: dict = {}  # (path, size, mtime) -> entries; a StarPak's table is read once per app run
+
+
 class StarPakIndex:
     def __init__(self, path: str | os.PathLike[str]):
         self.path = Path(path)
         self.entries: dict[int, StarPakEntry] = {}
 
     def parse(self) -> "StarPakIndex":
-        size = self.path.stat().st_size
+        stat = self.path.stat(); size = stat.st_size
+        key = (str(self.path), size, stat.st_mtime_ns)
+        cached = _INDEX_CACHE.get(key)
+        if cached is not None:
+            self.entries = cached
+            return self
         if size < 8:
             raise ValueError("StarPak too small")
         with self.path.open("rb") as f:
@@ -29,12 +37,18 @@ class StarPakIndex:
                 raise ValueError("invalid StarPak footer table")
             f.seek(size - 8 - table_bytes)
             table_start = size - 8 - table_bytes
-            for _ in range(count):
-                off, block_size = struct.unpack("<QQ", f.read(16))
-                if block_size:
-                    if off + block_size > table_start or off in self.entries:
-                        raise ValueError("invalid or duplicate StarPak block extent")
-                    self.entries[off] = StarPakEntry(off, block_size)
+            table = f.read(table_bytes)  # the whole table in one read instead of one read per entry
+            if len(table) != table_bytes:
+                raise ValueError("truncated StarPak footer table")
+        entries = {}
+        for off, block_size in struct.iter_unpack("<QQ", table):
+            if block_size:
+                if off + block_size > table_start or off in entries:
+                    raise ValueError("invalid or duplicate StarPak block extent")
+                entries[off] = StarPakEntry(off, block_size)
+        self.entries = entries
+        if len(_INDEX_CACHE) >= 64: _INDEX_CACHE.pop(next(iter(_INDEX_CACHE)))
+        _INDEX_CACHE[key] = entries
         return self
 
     def read(self, offset: int, size: int | None = None) -> bytes:

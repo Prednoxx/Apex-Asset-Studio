@@ -4,6 +4,7 @@ import mmap
 import os
 import json
 import re
+import sqlite3
 import struct
 from pathlib import Path
 from .rpak.archive import RpakArchive
@@ -14,6 +15,11 @@ from .rpak.patch import reconstruct
 def default_cache_dir():
     return Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'ApexAssetStudio' / 'decoded_cache'
 
+
+# Parsed package tables (pages, assets…) by decoded-cache file. The file name is a hash of the source package's
+# path, size and date, so the same name always means the same contents; parsing common.rpak's tables takes a
+# noticeable moment, so it happens once per app run instead of once per model load, preview and export.
+_TABLES = {}
 
 # The app sets these from the user's Storage settings; every repository uses them unless told otherwise.
 SETTINGS = {'cache_dir': None, 'cache_budget': 12 * 1024**3}
@@ -40,6 +46,7 @@ class AssetRepository:
         self.stop_event = stop_event
         self.cache_budget = cache_budget
         self.used_cache = set()
+        self._db = None  # one catalog connection for the repository's lifetime (opening one per lookup is slow)
 
     def open(self, path):
         path = Path(path).resolve()
@@ -91,11 +98,12 @@ class AssetRepository:
             with path.open('rb') as source, cached.open('rb') as decoded:
                 valid_cache = source.read(source_header.header_size) == decoded.read(source_header.header_size)
         if not valid_cache:
-            archive.materialize(self.stop_event)
             temp = cached.with_suffix('.tmp')
-            temp.write_bytes(archive.data)
+            try:
+                archive.materialize_to(temp, self.stop_event)  # streamed to disk, never fully in memory
+            except BaseException:
+                temp.unlink(missing_ok=True); raise
             temp.replace(cached)
-            archive.data = None
         archive = self._map_archive(path,cached)
         self.raw_opened[path] = archive
         return archive
@@ -108,18 +116,25 @@ class AssetRepository:
         cached.touch()
         self.handles.extend([f, mapping])
         archive.data = mapping
-        archive.header = RpakHeader.parse(mapping[:128])
-        archive.layout = compute_layout(mapping, archive.header)
-        archive.segments = parse_segments(mapping, archive.header, archive.layout)
-        archive.pages = parse_pages(mapping, archive.header, archive.layout)
-        archive.assets = parse_assets(mapping, archive.header, archive.layout)
+        key = (cached.name, len(mapping))
+        tables = _TABLES.get(key)
+        if tables is None:
+            header = RpakHeader.parse(mapping[:128]); layout = compute_layout(mapping, header)
+            assets = parse_assets(mapping, header, layout)
+            by_guid = {}
+            for asset in assets: by_guid.setdefault(asset.guid, []).append(asset)
+            tables = (header, layout, parse_segments(mapping, header, layout), parse_pages(mapping, header, layout), assets, by_guid)
+            if len(_TABLES) >= 32: _TABLES.pop(next(iter(_TABLES)))
+            _TABLES[key] = tables
+        archive.header, archive.layout, archive.segments, archive.pages, archive.assets, archive.by_guid = tables
         return archive
 
     def asset(self, guid, preferred=None):
         guid = guid.upper()
-        with self.catalog.connect() as db:
-            rows = db.execute('''SELECT c.path,c.patch_count,a.type FROM assets a JOIN containers c ON c.id=a.container_id
-                WHERE a.guid=? AND c.status='ok' ORDER BY c.patch_count,c.filename''', (guid,)).fetchall()
+        if self._db is None:
+            self._db = sqlite3.connect(self.catalog.db_path, timeout=60, check_same_thread=False); self._db.row_factory = sqlite3.Row
+        rows = self._db.execute('''SELECT c.path,c.patch_count,a.type FROM assets a JOIN containers c ON c.id=a.container_id
+            WHERE a.guid=? AND c.status='ok' ORDER BY c.patch_count,c.filename''', (guid,)).fetchall()
         paths = list(dict.fromkeys(r['path'] for r in rows))
         # Later numbered packages are preferred only within the same declared chain.
         chains = {}
@@ -145,11 +160,12 @@ class AssetRepository:
         if len(paths) > 1 and not match:
             raise ValueError(f'GUID {guid} is ambiguous across {len(paths)} base RPaks')
         archive = self.open(paths[0])
-        matches = [x for x in archive.assets if f'{x.guid:016X}' == guid]
+        matches = archive.by_guid.get(int(guid, 16), [])
         if len(matches) != 1: raise ValueError(f'GUID {guid} not uniquely present in source RPak')
         return archive, matches[0]
 
     def close(self):
+        if self._db is not None: self._db.close(); self._db = None
         self.opened.clear()
         self.raw_opened.clear()
         for handle in reversed(self.handles): handle.close()

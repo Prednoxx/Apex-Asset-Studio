@@ -57,8 +57,9 @@ class LibraryPage:
         self._preview_pixels = {}; self._preview_cache = OrderedDict()
         self._simple_sections: dict[str, tuple[str, ...]] = {}
 
-    def _viewport_hint(self, inside):
-        hint = 'Drag to rotate  ·  Shift-drag or right-drag to pan  ·  Scroll to zoom  ·  R resets the view'
+    def _viewport_hint(self, inside, keys=False):
+        hint = ('Arrow keys rotate  ·  Shift+arrows pan  ·  + / − zoom  ·  R resets the view  ·  Tab moves on' if keys else
+                'Drag to rotate  ·  Shift-drag or right-drag to pan  ·  Scroll to zoom  ·  R resets the view')
         if inside:
             self._status_before_hint = self.status_var.get(); self.status_var.set(hint)
         elif self.status_var.get() == hint:
@@ -72,6 +73,18 @@ class LibraryPage:
             if not tree.exists(iid) or iid not in tree.selection(): self._held_tags.pop(iid, None)
         for iid in tree.selection():
             if iid not in self._held_tags: self._held_tags[iid] = tree.item(iid, 'tags'); tree.item(iid, tags=())
+
+    def _focus_list(self):
+        tree = self.simple_assets; rows = tree.get_children()
+        if not rows: return
+        tree.focus_set()
+        if not tree.selection(): tree.selection_set(rows[0])
+        tree.focus(tree.selection()[0]); tree.see(tree.selection()[0])
+
+    def _select_all_listed(self, _event=None):
+        rows = [iid for iid in self.simple_assets.get_children() if iid.startswith('cosmetic:')]
+        if rows: self.simple_assets.selection_set(rows)
+        return 'break'
 
     def _debounce_search(self):
         if getattr(self, '_search_job', None): self.after_cancel(self._search_job)
@@ -147,7 +160,7 @@ class LibraryPage:
         self.animation_export_btn.state(['!disabled'] if self._animation is not None and idle else ['disabled'])
 
     # Columns hidden first when the list is too narrow to show them all (Name and Rarity always stay).
-    OPTIONAL_COLUMNS = ('state', 'source', 'season')
+    OPTIONAL_COLUMNS = ('source', 'season', 'state')  # availability ('Model') stays the longest
 
     def _fit_list_columns(self, event=None):
         """Show as many columns as fit the list's width, so none are cut off. Hidden ones still sort."""
@@ -198,6 +211,7 @@ class LibraryPage:
         entry.pack(fill='x')
         entry.bind('<Return>', lambda _e: self._search_simple())
         entry.bind('<Escape>', lambda _e: self.simple_search_var.set(''))
+        entry.bind('<Down>', lambda _e: (self._focus_list(), 'break')[-1])  # arrow down from the search into the results
         self._placeholder(entry, self.simple_search_var, 'Search this list')
         self.simple_search_var.trace_add('write', lambda *_: self._debounce_search())
         filters = widgets.Flow(center, gap=(12, 6)); filters.pack(fill='x', pady=(0, 8), padx=(0, 8))
@@ -241,6 +255,7 @@ class LibraryPage:
         self.simple_assets.on_sort = self._remember_column_sort
         self.simple_assets.bind('<<TreeviewSelect>>', self._swap_selection_tags)
         self.simple_assets.bind('<<TreeviewSelect>>', self._simple_asset_selected, add='+')
+        self.simple_assets.bind('<Control-a>', self._select_all_listed)  # select every listed skin (batch export)
         self.simple_assets.bind('<<TreeviewSelect>>', lambda _e: self._refresh_export_controls(), add='+')
         self._held_tags = {}
 
@@ -256,11 +271,14 @@ class LibraryPage:
                     'Every material and texture this model uses, what each texture is for, and anything that '
                     "couldn't be read. Picking a material highlights it in the preview.").pack(side='right', anchor='n')
 
-        viewport = ttk.Frame(detail, style='Hairline.TFrame', padding=1)
+        viewport = ttk.Frame(detail, style='Hairline.TFrame', padding=2)
         self.preview = ModelPreview(viewport, height=300)
         self.preview.pack(fill='both', expand=True)
         self.preview.bind('<Enter>', lambda _e: self._viewport_hint(True), add='+')
         self.preview.bind('<Leave>', lambda _e: self._viewport_hint(False), add='+')
+        # Keyboard focus on the 3D view: a visible ring, and the key help in the status bar.
+        self.preview.bind('<FocusIn>', lambda _e: (viewport.configure(style='Focus.TFrame'), self._viewport_hint(True, keys=True)), add='+')
+        self.preview.bind('<FocusOut>', lambda _e: (viewport.configure(style='Hairline.TFrame'), self._viewport_hint(False, keys=True)), add='+')
 
         model_bar = ttk.Frame(detail, style='Panel.TFrame')
         ttk.Label(model_bar, text='Model', style='Section.Panel.TLabel').pack(side='left', padx=(0, 8))
@@ -369,7 +387,7 @@ class LibraryPage:
     def refresh_simple_library(self):
         self.simple_tree.delete(*self.simple_tree.get_children())
         self.simple_assets.delete(*self.simple_assets.get_children())
-        self._simple_sections.clear()
+        self._simple_sections.clear(); self._shown_section = None
         self.list_count_var.set('')
         if self.catalog.index_outdated:
             self.simple_header_var.set('Library')
@@ -415,10 +433,15 @@ class LibraryPage:
             return
         self._load_simple_section(iid)
 
-    def _load_simple_section(self, iid: str):
+    def _load_simple_section(self, iid: str, force=False):
         spec = self._simple_sections.get(iid)
         if not spec or self._scanning or self._busy:
             return
+        # Selecting the section that is already shown (e.g. the selection event right after startup) is free.
+        key = (iid, self.simple_search_var.get().strip(), self.search_all_var.get(), self.rarity_filter_var.get(),
+               self.hide_unavailable_var.get(), self.season_filter_var.get())
+        if not force and key == getattr(self, '_shown_section', None): return
+        self._shown_section = key
         if getattr(self, '_load_stop', None): self._load_stop.set()
         if getattr(self, '_loading', False): self._set_loading(False)
         label = self.simple_tree.item(iid, 'text')
@@ -528,10 +551,10 @@ class LibraryPage:
         if text: self.simple_info.grid()
         else: self.simple_info.grid_remove()
 
-    def _search_simple(self):
+    def _search_simple(self, force=False):
         selected = self.simple_tree.selection()
         if selected:
-            self._load_simple_section(selected[0])
+            self._load_simple_section(selected[0], force=force)
 
     @staticmethod
     def _model_label(choice):

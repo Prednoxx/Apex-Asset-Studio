@@ -167,17 +167,14 @@ ICON_SIZES = (256, 128, 64, 48, 32, 24, 16)
 def icon_set(face, accent):
     """Round app icons at every Windows icon size. Small sizes get a tighter face crop and a bolder rim so the
     circle still reads at 16 px."""
+    # Two renders (full face, and a tighter crop for the small sizes so the face isn't a smudge), scaled down.
+    w, h = face.size; inset = int(w * .12)
+    tight = face.crop((inset, int(h * .06), w - inset, int(h * .06) + w - 2 * inset))
+    large, small = orb(256, face, accent), orb(64, tight, accent)
     out = {}
     for size in ICON_SIZES:
-        art = face
-        if size <= 32:  # zoom in on the face so it isn't a smudge
-            w, h = face.size; inset = int(w * .12)
-            art = face.crop((inset, int(h * .06), w - inset, int(h * .06) + w - 2 * inset))
-        render = max(size, 64)
-        image = orb(render, art, accent)
-        if size < render:
-            image = image.resize((size, size), Image.Resampling.LANCZOS)
-        out[size] = image
+        source = large if size > 32 else small
+        out[size] = source if size == source.width else source.resize((size, size), Image.Resampling.LANCZOS)
     return out
 
 
@@ -209,8 +206,11 @@ def _picture(name):
 def _cover(image, w, h, focus):
     """Scale to cover w x h, then crop around the focus point (fractions of the picture)."""
     scale = max(w / image.width, h / image.height)
+    factor = int(1 / scale / 1.5) if scale < 1 else 1
+    if factor >= 2:  # box-reduce most of the way first (fast), then a high-quality resize for the rest
+        image = image.reduce(factor); scale = max(w / image.width, h / image.height)
     sw, sh = max(w, round(image.width * scale)), max(h, round(image.height * scale))
-    scaled = image.resize((sw, sh), Image.Resampling.LANCZOS if scale < 1 else Image.Resampling.BICUBIC)
+    scaled = image.resize((sw, sh), Image.Resampling.LANCZOS if scale < 1 else Image.Resampling.BICUBIC, reducing_gap=2.0)
     x = min(max(0, int(sw * focus[0] - w / 2)), sw - w); y = min(max(0, int(sh * focus[1] - h / 2)), sh - h)
     return scaled.crop((x, y, x + w, y + h))
 
@@ -271,6 +271,29 @@ def pil_font(size, weight='regular'):
     return _PIL_FONTS[key]
 
 
+def _luma(c):
+    def ch(v):
+        v /= 255
+        return v / 12.92 if v <= .04045 else ((v + .055) / 1.055) ** 2.4
+    r, g, b = (ch(v) for v in c[:3])
+    return .2126 * r + .7152 * g + .0722 * b
+
+
+def readable_glass(image, box, t, ink, minimum, radius, blur, alpha):
+    """Frosted glass whose tint is made more opaque until `ink` text reaches the contrast minimum on the busiest
+    part of the backdrop behind it, so messages stay readable on any theme picture."""
+    from PIL import ImageStat
+    text = _luma(rgb(ink))
+    for tint in (alpha, alpha + 30, alpha + 55, alpha + 80, 255):
+        out = glass(image, box, t['surface'], radius=radius, blur=blur, tint_alpha=min(255, tint))
+        region = out.crop(box).convert('RGB')
+        stat = ImageStat.Stat(region)
+        worst = [min(255, max(0, m + (1 if text < .5 else -1) * 1.5 * sd)) for m, sd in zip(stat.mean, stat.stddev)]
+        lo, hi = sorted((text, _luma(worst)))
+        if (hi + .05) / (lo + .05) >= minimum: return out
+    return out
+
+
 def caption(image, headline, body, t, scale=1.0):
     """Centered message on a frosted glass card (viewport empty states). Returns a new image."""
     w, h = image.size
@@ -295,7 +318,7 @@ def caption(image, headline, body, t, scale=1.0):
     cw, ch = min(cw, w - 20), min(ch, h - 20)
     if cw < 40 or ch < 24: return image  # view too small for a message
     x0, y0 = (w - cw) // 2, int((h - ch) * .42)
-    out = glass(image, (x0, y0, x0 + cw, y0 + ch), t['surface'], radius=int(14 * scale), blur=10, tint_alpha=150)
+    out = readable_glass(image, (x0, y0, x0 + cw, y0 + ch), t, t['muted'], 4.5, int(14 * scale), 10, 150)
     d = ImageDraw.Draw(out); y = y0 + int(20 * scale)
     if headline:
         d.text((w // 2, y), headline, font=big, fill=rgb(t['text']), anchor='ma'); y += hh + int(14 * scale)
@@ -340,6 +363,6 @@ def badge(image, text, t, scale=1.0):
     w, h = image.size
     x1 = min(w - margin, margin + tw + pad_x * 2); y1 = h - margin; y0 = y1 - th - pad_y * 2
     if x1 - margin < 40 or y0 < margin: return image
-    out = glass(image, (margin, y0, x1, y1), t['surface'], radius=(y1 - y0) // 2, blur=8, tint_alpha=170)
+    out = readable_glass(image, (margin, y0, x1, y1), t, t['text'], 4.5, (y1 - y0) // 2, 8, 170)
     ImageDraw.Draw(out).text((margin + pad_x, y0 + pad_y - box[1]), text, font=font, fill=rgb(t['text']))
     return out

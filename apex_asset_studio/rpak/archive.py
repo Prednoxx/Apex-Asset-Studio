@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import mmap
 import os
 import re
 from dataclasses import dataclass
@@ -7,7 +8,7 @@ from pathlib import Path
 from threading import Event
 
 from .rtech import OodleRuntime, decompress_rtech_payload
-from .oodle_stream import decompress_stream, ScanCancelled
+from .oodle_stream import decompress_stream, frame_stream, ScanCancelled
 from .structures import (
     FLAG_OODLE, FLAG_RTECH, FLAG_ZSTD, LayoutOffsets, PakAsset, PageHeader,
     RpakHeader, compute_layout, parse_assets, parse_pages, parse_segments,
@@ -61,9 +62,11 @@ class RpakArchive:
                 raise RuntimeError(f"RPak uses Oodle but no compatible decoder is available: {runtime.description}")
             if header.cmp_size < header.header_size or header.cmp_size > len(raw):
                 raise ValueError("invalid compressed RPak extent")
-            compressed = raw[header.header_size:header.cmp_size]
-            payload = decompress_stream(compressed, header.dcmp_size - header.header_size, runtime, stop_event)
-            data = raw[:header.header_size] + payload
+            # A view instead of a copy of the compressed part, and the header written straight into the output.
+            compressed = memoryview(raw)[header.header_size:header.cmp_size]
+            data = decompress_stream(compressed, header.dcmp_size - header.header_size, runtime, stop_event,
+                                     prefix=raw[:header.header_size])
+            compressed.release()
         elif header.flags & FLAG_ZSTD:
             raise RuntimeError("ZSTD-compressed RPaks are detected but not implemented in this test build")
         else:
@@ -77,6 +80,41 @@ class RpakArchive:
         self.pages = parse_pages(data, header, self.layout)
         self.assets = parse_assets(data, header, self.layout)
         return data
+
+    def materialize_to(self, destination, stop_event: Event | None = None) -> RpakHeader:
+        """Decompress the package straight into a file, a piece at a time. Unlike materialize() this never holds
+        the whole package in memory (common.rpak is ~1.5 GB decompressed), so it is lighter and faster."""
+        header = self.read_header()
+        if not header.compressed or header.flags & FLAG_RTECH or not header.flags & FLAG_OODLE:
+            data = self.materialize(stop_event)
+            Path(destination).write_bytes(data)
+            self.data = None
+            return header
+        runtime = OodleRuntime(self.game_root)
+        if not runtime.available:
+            raise RuntimeError(f"RPak uses Oodle but no compatible decoder is available: {runtime.description}")
+        raw_size = header.dcmp_size - header.header_size
+        with self.path.open('rb') as source, mmap.mmap(source.fileno(), 0, access=mmap.ACCESS_READ) as raw:
+            if header.cmp_size < header.header_size or header.cmp_size > len(raw):
+                raise ValueError("invalid compressed RPak extent")
+            view = memoryview(raw)[header.header_size:header.cmp_size]
+            try:
+                spans = frame_stream(view, raw_size)
+                written = 0
+                with open(destination, 'wb') as out:
+                    out.write(raw[:header.header_size])
+                    for span in spans:
+                        if stop_event is not None and stop_event.is_set():
+                            raise ScanCancelled()
+                        decoded = runtime.decompress(bytes(view[span.start:span.end]), span.raw_size)
+                        if len(decoded) != span.raw_size:
+                            raise ValueError("Oodle restart span returned an incorrect size")
+                        out.write(decoded); written += len(decoded)
+            finally:
+                view.release()
+        if written != raw_size:
+            raise ValueError(f"RPak decoded size mismatch: {written + header.header_size} != {header.dcmp_size}")
+        return header
 
     def index(self, mine_strings: bool = True, stop_event: Event | None = None) -> ArchiveIndex:
         try:

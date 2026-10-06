@@ -35,6 +35,26 @@ class ThemeTests(unittest.TestCase):
         kept = appearance.normalize({'version': 5, 'preset': 'Aero Day', 'base': 'Aero Day'})
         self.assertEqual(kept['preset'], 'Aero Day')
 
+    def test_text_contrast_meets_wcag(self):
+        """Every theme, normal and high contrast: body/secondary text, rarity colors, warnings and button labels."""
+        saved = dict(appearance.ACTIVE)
+        try:
+            for hc in (False, True):
+                appearance.ACTIVE['contrast'] = hc; need = 7 if hc else 4.5
+                for name, spec in appearance.STYLES.items():
+                    appearance.ACTIVE['style'] = name
+                    t = appearance.tokens(spec['colors'])
+                    pairs = [('text', t['text'], t['surface'], need), ('muted', t['muted'], t['surface'], need),
+                             ('muted/background', t['muted'], t['background'], 4.5), ('warn', t['warn'], t['surface'], need),
+                             ('button label', t['accent_text'], t['accent_fill'], need),
+                             ('selected row', t['selection_text'], t['selection'], 4.5)]
+                    pairs += [(rarity, color, t['surface'], need) for rarity, color in appearance.rarity(t).items()]
+                    for label, fg, bg, minimum in pairs:
+                        with self.subTest(theme=name, high_contrast=hc, pair=label):
+                            self.assertGreaterEqual(appearance.contrast(fg, bg), minimum)
+        finally:
+            appearance.ACTIVE.clear(); appearance.ACTIVE.update(saved)
+
 
 if __name__ == '__main__':
     unittest.main()

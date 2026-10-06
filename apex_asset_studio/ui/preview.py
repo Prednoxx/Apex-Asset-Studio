@@ -88,6 +88,10 @@ class ModelPreview(OpenGLFrame):
         self.bind('<ButtonPress-1>',self._down)
         self.bind('<B1-Motion>',self._move)
         self.bind('<MouseWheel>',self._wheel)
+        self.configure(takefocus=1)
+        for key in ('<Left>','<Right>','<Up>','<Down>','<Shift-Left>','<Shift-Right>','<Shift-Up>','<Shift-Down>',
+                    '<plus>','<equal>','<KP_Add>','<minus>','<underscore>','<KP_Subtract>'):
+            self.bind(key,self._key)
         for button in (2,3):
             self.bind(f'<ButtonPress-{button}>',self._pan_down)
             self.bind(f'<B{button}-Motion>',self._pan_move)
@@ -231,7 +235,23 @@ class ModelPreview(OpenGLFrame):
         if self.context_created and self.winfo_ismapped():
             self.tkMakeCurrent();GL.glViewport(0,0,self.width,self.height);self.initgl()
 
-    def _down(self,event): self._drag=(event.x,event.y,self.yaw,self.pitch)
+    def _down(self,event): self.focus_set(); self._drag=(event.x,event.y,self.yaw,self.pitch)
+
+    def _key(self,event):
+        """Keyboard control while the view has focus: arrows rotate, Shift+arrows pan, + / - zoom."""
+        key=event.keysym; shift=bool(event.state&1)
+        if not self.has_geometry: return None
+        steps={'Left':(-1,0),'Right':(1,0),'Up':(0,-1),'Down':(0,1)}
+        if key in steps:
+            dx,dy=steps[key]
+            if shift:
+                self.pan=self.pan+np.asarray((dx,-dy),dtype=np.float32)*self.span*.04/self.zoom
+            else:
+                self.yaw+=dx*.12; self.pitch=max(-1.5,min(1.5,self.pitch+dy*.08))
+        elif key in ('plus','equal','KP_Add'): self.zoom=min(8,self.zoom*1.15)
+        elif key in ('minus','underscore','KP_Subtract'): self.zoom=max(.2,self.zoom/1.15)
+        else: return None
+        self.schedule(); return 'break'
 
     def _move(self,event):
         if not self.has_geometry or not self._drag or len(self._drag)!=4: return

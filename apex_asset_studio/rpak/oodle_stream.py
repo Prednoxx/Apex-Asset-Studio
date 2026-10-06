@@ -61,14 +61,16 @@ def frame_stream(data: bytes, raw_size: int) -> list[OodleSpan]:
     return spans
 
 
-def decompress_stream(data: bytes, raw_size: int, runtime, stop: Event | None = None) -> bytes:
+def decompress_stream(data: bytes, raw_size: int, runtime, stop: Event | None = None, prefix: bytes = b'') -> bytes:
+    """Decode an Oodle stream; `prefix` (e.g. the package header) is placed in front without an extra copy."""
     spans = frame_stream(data, raw_size)
-    out = bytearray(raw_size)
-    offset = 0
+    out = bytearray(len(prefix) + raw_size)
+    out[:len(prefix)] = prefix
+    offset = len(prefix)
     for span in spans:
         if stop is not None and stop.is_set():
             raise ScanCancelled()
-        decoded = runtime.decompress(data[span.start:span.end], span.raw_size)
+        decoded = runtime.decompress(bytes(data[span.start:span.end]), span.raw_size)
         if len(decoded) != span.raw_size:
             raise ValueError("Oodle restart span returned an incorrect size")
         out[offset:offset + span.raw_size] = decoded

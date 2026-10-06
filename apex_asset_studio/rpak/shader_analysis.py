@@ -53,11 +53,12 @@ def anisotropy_direction_contract(text, resource_id):
 
 def convert_anisotropy_direction(source,destination,contract):
     from PIL import Image
-    lookup=[bytes((round((math.cos(i/255*contract['angle_scale'])*.5+.5)*255),
-                   round((contract['sine_sign']*math.sin(i/255*contract['angle_scale'])*.5+.5)*255),128)) for i in range(256)]
+    import numpy as np
+    lookup=np.array([(round((math.cos(i/255*contract['angle_scale'])*.5+.5)*255),
+                      round((contract['sine_sign']*math.sin(i/255*contract['angle_scale'])*.5+.5)*255),128) for i in range(256)],dtype=np.uint8)
     with Image.open(source) as image:
-        raw=image.getchannel(contract['channel']).tobytes()
-        Image.frombytes('RGB',image.size,b''.join(lookup[v] for v in raw)).save(destination)
+        channel=np.asarray(image.getchannel(contract['channel']))
+        Image.fromarray(lookup[channel],'RGB').save(destination)
 
 
 def derivative_normal_contract(text, resource_id):
@@ -117,14 +118,14 @@ def derivative_normal_contract(text, resource_id):
 def convert_derivative_normal(source, destination, contract):
     """Make an explicitly derived Blender RGB map, preserving the original XY PNG."""
     from PIL import Image
-    import math
-    lookup=[]
-    for r in range(256):
-        x=r/255*contract['x_scale']+contract['x_bias']
-        for g in range(256):
-            y=g/255*contract['y_scale']+contract['y_bias'];length=math.sqrt(x*x+y*y+1)
-            lookup.append(bytes(round((v/length*.5+.5)*255) for v in (x,y,1)))
+    import numpy as np
+    # 256x256 lookup (R, G) -> RGB, then one table lookup per pixel with numpy instead of a Python loop.
+    steps=np.arange(256,dtype=np.float64)/255
+    x=np.repeat(steps*contract['x_scale']+contract['x_bias'],256)  # r major, g minor (index r*256+g)
+    y=np.tile(steps*contract['y_scale']+contract['y_bias'],256)
+    length=np.sqrt(x*x+y*y+1)
+    lookup=np.round((np.stack((x,y,np.ones_like(x)),axis=1)/length[:,None]*.5+.5)*255).astype(np.uint8)
     with Image.open(source) as image:
-        raw=image.convert('RGBA').tobytes()
-        rgb=b''.join(lookup[raw[i]*256+raw[i+1]] for i in range(0,len(raw),4))
-        Image.frombytes('RGB',image.size,rgb).save(destination)
+        pixels=np.asarray(image.convert('RGBA'))
+        index=pixels[...,0].astype(np.int32)*256+pixels[...,1]
+        Image.fromarray(lookup[index],'RGB').save(destination)

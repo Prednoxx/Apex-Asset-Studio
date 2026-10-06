@@ -72,10 +72,13 @@ TEXT_SCALES = (('Small', .9), ('Normal', 1.0), ('Large', 1.15), ('Larger', 1.3),
 
 
 def rarity(t):
-    """Rarity text colors, deepened on light palettes so they stay readable."""
-    if not t.get('light'): return dict(RARITY)
-    return {'common': '#7d7a86', 'rare': '#1d87cf', 'epic': '#9147cf', 'legendary': '#c98a00',
-            'mythic': '#e0335a', 'heirloom': '#e0335a', 'iconic': '#e0335a'}
+    """Rarity text colors, deepened on light palettes and nudged toward the text color until they meet WCAG AA
+    (AAA with high contrast) on the list background."""
+    colors = dict(RARITY) if not t.get('light') else {
+        'common': '#7d7a86', 'rare': '#1d87cf', 'epic': '#9147cf', 'legendary': '#c98a00',
+        'mythic': '#e0335a', 'heirloom': '#e0335a', 'iconic': '#e0335a'}
+    need = 7 if ACTIVE.get('contrast') else 4.5
+    return {key: readable(color, t['surface'], need, t['text']) for key, color in colors.items()}
 DEFAULT_PRESET = DEFAULT_STYLE
 ACTIVE = {'style': DEFAULT_STYLE, 'scale': 1.0, 'contrast': False, 'reduce': False, 'mascot_accent': None}
 
@@ -194,14 +197,19 @@ def tokens(colors):
     t['light'] = luminance(t['surface']) > .5
     t['hover'] = mix(t['accent2'], t['raised'], .10)
     t['faint'] = mix(t['muted'], t['surface'], .55)
-    t['warn'] = '#ffc53d'
+    need = 7 if hc else 4.5
+    t['warn'] = '#ffc53d' if luminance(t['surface']) < .5 else '#9a6400'  # amber; darker on light themes
+    for surface in ('surface', 'background'): t['warn'] = readable(t['warn'], t[surface], need, t['text'])
     if t['light']:
         t['faint'] = mix(t['muted'], t['surface'], .7)
     t['faint'] = readable(t['faint'], t['surface'], 4.5 if hc else 3.0, t['text'])
     t['selection'] = mix(t['accent'], t['surface'], .62 if not t['light'] else .22)
     t['selection_text'] = '#ffffff' if contrast('#ffffff', t['selection']) >= contrast(t['text'], t['selection']) else t['text']
     t['selection'] = readable(t['selection'], t['selection_text'], 4.5, t['surface'])  # bright accents: deepen the bar
-    t['accent_text'] = '#ffffff' if contrast('#ffffff', t['accent']) >= 3.6 else '#141414'
+    t['accent_text'] = '#ffffff' if contrast('#ffffff', t['accent']) >= 3.6 else '#141414'  # white unless the accent is very light
+    # Filled accent buttons/pills use accent_fill: the accent, deepened (or lightened) just enough that their label
+    # meets the contrast minimum, with a little margin for the gloss highlight.
+    t['accent_fill'] = readable(t['accent'], t['accent_text'], need + .4, '#000000' if t['accent_text'] == '#ffffff' else '#ffffff')
     t['hover'] = mix(t['accent'], t['raised'], .14)
     return t
 
@@ -284,7 +292,7 @@ def _control_images(app, c, f, m):
     out = {}
     for state in ('normal', 'hover', 'pressed', 'disabled'):
         out[f'button_{state}'] = gloss.pill(max(40, bh * 2), bh, neutral, state, radius=button_radius, dark=dark, shine=shine)
-        out[f'accent_{state}'] = gloss.pill(max(40, bh * 2), bh, c['accent'], state, radius=button_radius, dark=dark, shine=shine)
+        out[f'accent_{state}'] = gloss.pill(max(40, bh * 2), bh, c['accent_fill'], state, radius=button_radius, dark=dark, shine=shine)
     field_radius = min(corner, fh // 2) if radius is not None else fh // 2
     out['field'] = gloss.field(max(40, fh * 2), fh, c['raised'], c['border'], radius=field_radius)
     out['field_focus'] = gloss.field(max(40, fh * 2), fh, c['raised'], c['border'], focus=c['accent'], radius=field_radius)
@@ -363,6 +371,7 @@ def apply(app, value):
     style.configure('TFrame', background=c['background'], borderwidth=0)
     style.configure('Panel.TFrame', background=c['surface'])
     style.configure('Hairline.TFrame', background=c['border'])
+    style.configure('Focus.TFrame', background=c['accent'])  # keyboard focus ring around the 3D view
     style.configure('Card.TFrame', background=c['raised'])
 
     for prefix, bg in (('', c['background']), ('Panel.', c['surface']), ('Card.', c['raised'])):

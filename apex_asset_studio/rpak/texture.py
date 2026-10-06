@@ -9,6 +9,7 @@ from .rtech import OodleRuntime, decompress_rtech_payload
 from .oodle_stream import decompress_stream
 
 DXGI = [71,72,74,75,77,78,80,81,83,84,95,96,98,99]
+EXPORT_PNG_LEVEL = 4
 
 
 FORMAT_NAMES = {0: 'BC1', 1: 'BC1 sRGB', 2: 'BC2', 3: 'BC2 sRGB', 4: 'BC3', 5: 'BC3 sRGB', 6: 'BC4', 7: 'BC4 signed',
@@ -111,7 +112,9 @@ def extract_texture(archive, asset, directory, stem, preview_size=None):
                     4:dec.decode_bc3,5:dec.decode_bc3,6:dec.decode_bc4,8:dec.decode_bc5,
                     12:dec.decode_bc7,13:dec.decode_bc7}[fmt]
         image = Image.frombytes('RGBA',(width,height),function(mips[level],width,height),'raw','BGRA')
-    if image: image.save(png)
+    # Preview PNGs are a private cache: fastest compression (encoding was most of the preview time). Exported PNGs
+    # use a moderate level: the same pixels, a little bigger, much quicker to write than the default.
+    if image: image.save(png, compress_level=1 if preview_size else EXPORT_PNG_LEVEL)
     if not preview_size:
         source_dir = directory/'original'; source_dir.mkdir(exist_ok=True)
         (source_dir/f'{stem}.header.bin').write_bytes(header)
