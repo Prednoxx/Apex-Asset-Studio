@@ -1,10 +1,11 @@
 # Artwork
 
-File: asuka.webp. Character: Asuka, Evangelion.
-Source file: Downloads/asuka.webp, provided October 4, 2026.
-The original artist is uncredited. Character and artwork rights remain with their respective owners. This image is excluded from the application's AGPL license.
-
-asuka.ico contains resized versions of the same image for the Windows icon.
+Mascot: Ruka-tan. Provided by the project owner on October 6, 2026 (Downloads\ruka-tan).
+- ruka.webp: full artwork ("Ruka tan HD.png"), resized to 1200 px tall. Startup screen and Settings.
+- ruka_avatar.png: round avatar ("Rukatan.png", 512 px). Header orb and window/app icon.
+- app_icon.ico: the avatar as a glass orb at every Windows icon size.
+The original artists are uncredited. Character and artwork rights remain with their respective owners. These images are
+excluded from the application's AGPL license.
 
 ## Theme backgrounds
 

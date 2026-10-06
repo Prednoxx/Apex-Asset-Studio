@@ -32,7 +32,7 @@ class StartupSplash(tk.Toplevel):
         c.place(x=1, y=1)
         light = t['light']
         bg = gloss.backdrop(m['backdrop'], (W, H), t, base=t['background'], energy=1.0)
-        path = Path(logo_path) if logo_path else Path(__file__).resolve().parents[1]/'resources'/'asuka.webp'
+        path = Path(logo_path) if logo_path else appearance.MASCOT_ART
         try:
             art = _art(path, (int(W * .48), H))
             halo = Image.new('RGBA', art.size, gloss.rgb('#ffffff' if light else t['accent'], 0))

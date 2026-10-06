@@ -41,8 +41,7 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, AdvancedPage, Se
         appearance.ACTIVE.update(style=self.appearance['base'], scale=self.appearance['text_scale'],
                                  contrast=self.appearance['high_contrast'], reduce=self.appearance['reduce_effects'],
                                  mascot_accent=self._mascot_color())
-        splash = StartupSplash(self, appearance.effective_colors(self.appearance), self.appearance['mascot_path'] or None,
-                               APP_VERSION) if show_splash else None
+        splash = StartupSplash(self, appearance.effective_colors(self.appearance), None, APP_VERSION) if show_splash else None
         if splash: splash.stage('Opening index…')
         self.catalog = Catalog(catalog_path or appdata / "catalog.sqlite3")
 

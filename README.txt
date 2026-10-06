@@ -95,9 +95,10 @@ BLENDER
 SETTINGS
 - Themes: Aero Night, Aero Day, Frutiger Aqua, Frutiger Eco, Frutiger Metro,
   Aurora, Sunburst and Sweetheart, each with its own background picture. The
-  Aero themes take their accent color from the mascot.
-- Text size, high contrast, reduced effects, keyboard shortcuts and the
-  mascot image are also in Settings.
+  Aero themes take their accent color from Ruka-tan's ribbon (can be
+  turned off in Settings > Mascot).
+- Text size, high contrast, reduced effects and keyboard shortcuts are also
+  in Settings. The mascot is Ruka-tan.
 
 KEYBOARD AND ACCESSIBILITY
 - Everything can be reached with Tab / Shift+Tab; hovering or tabbing to a

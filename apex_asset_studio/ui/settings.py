@@ -16,15 +16,7 @@ from .common import APP_VERSION, SHORTCUTS, folder_size, friendly_error, gb, ope
 
 class SettingsPage:
     def _mascot_color(self):
-        path = Path(self.appearance['mascot_path']) if self.appearance.get('mascot_path') else Path(__file__).resolve().parents[1]/'resources'/'asuka.webp'
-        cache = getattr(self, '_mascot_color_cache', None)
-        if cache and cache[0] == str(path): return cache[1]
-        try:
-            with Image.open(path) as image: color = gloss.accent_from_image(image)
-        except (OSError, ValueError):
-            color = None
-        self._mascot_color_cache = (str(path), color)
-        return color
+        return appearance.MASCOT_ACCENT
 
     def _build_settings(self):
         canvas = tk.Canvas(self.settings_tab, highlightthickness=0); self.settings_canvas = canvas
@@ -41,7 +33,6 @@ class SettingsPage:
         body.pack(anchor='nw', fill='x')
         self.theme_var = tk.StringVar(value=self.appearance['preset'])
         self.layout_var = tk.StringVar(value=self.appearance['layout'])
-        self.mascot_var = tk.BooleanVar(value=self.appearance['show_mascot'])
 
         ttk.Label(body, text='Settings', style='Title.TLabel').pack(anchor='w')
         ttk.Label(body, text='Changes apply immediately and are saved for next time.', style='Muted.TLabel').pack(anchor='w', pady=(4, 0))
@@ -142,17 +133,15 @@ class SettingsPage:
         ttk.Button(buttons, text='Apply colors', command=self._apply_custom_colors).pack(side='left')
         ttk.Button(buttons, text='Reset to default', style='Ghost.TButton', command=self._reset_appearance).pack(side='left', padx=8)
 
-        logo = section('Mascot', 'Shown in the header and on the startup screen. Any PNG or WebP works; transparent backgrounds look best.')
+        logo = section('Mascot', f'{appearance.MASCOT_NAME}, in the header, the window icon and on the startup screen.')
         self.mascot_portrait = ttk.Label(logo)
         self.mascot_portrait.pack(side='left', anchor='n')
         logo_controls = ttk.Frame(logo); logo_controls.pack(side='left', anchor='n', padx=(24, 0))
         self.mascot_accent_var = tk.BooleanVar(value=self.appearance['mascot_accent'])
-        ttk.Button(logo_controls, text='Change mascot…', command=self._choose_mascot).pack(anchor='w')
-        ttk.Button(logo_controls, text='Use original artwork', style='Ghost.TButton', command=self._restore_mascot).pack(anchor='w', pady=(6, 12))
+        ttk.Label(logo_controls, text=appearance.MASCOT_NAME, style='Strong.TLabel').pack(anchor='w', pady=(0, 8))
         widgets.tip(ttk.Checkbutton(logo_controls, text='Match accent color to mascot (Aero themes)', variable=self.mascot_accent_var,
                     command=lambda: self._set_option('mascot_accent', self.mascot_accent_var.get())),
-                    "Aero Night and Aero Day take their main color from the mascot's outfit. Other themes keep their own colors.").pack(anchor='w')
-        ttk.Checkbutton(logo_controls, text='Show mascot in header', variable=self.mascot_var, command=self._toggle_mascot).pack(anchor='w', pady=(4, 0))
+                    f"Aero Night and Aero Day take their main color from {appearance.MASCOT_NAME}'s ribbon. Other themes keep their own colors.").pack(anchor='w')
         self.appearance_status = ttk.Label(body, text='', style='Muted.TLabel')
         self.appearance_status.pack(anchor='w', pady=(18, 0))
 
@@ -306,9 +295,9 @@ class SettingsPage:
         self._sync_color_controls(); self._apply_appearance()
 
     def _reset_appearance(self):
-        keep = {k: self.appearance[k] for k in ('text_scale', 'high_contrast', 'reduce_effects', 'mascot_path', 'mascot_accent')}
+        keep = {k: self.appearance[k] for k in ('text_scale', 'high_contrast', 'reduce_effects', 'mascot_accent')}
         self.appearance = appearance.normalize(keep); self.theme_var.set(self.appearance['preset'])
-        self.layout_var.set(self.appearance['layout']); self.mascot_var.set(True)
+        self.layout_var.set(self.appearance['layout'])
         self._sync_color_controls(); self._apply_appearance()
 
     def _scale_columns(self):
@@ -336,54 +325,36 @@ class SettingsPage:
         self._set_option('text_scale', values[index])
         self.status_var.set(f'Text size: {appearance.TEXT_SCALES[index][0]}')
 
-    def _toggle_mascot(self):
-        self.appearance['show_mascot'] = self.mascot_var.get(); self._apply_appearance()
-
     def _load_mascot(self):
-        path = Path(self.appearance['mascot_path']) if self.appearance['mascot_path'] else Path(__file__).resolve().parents[1]/'resources'/'asuka.webp'
+        """Ruka-tan's portrait (Settings), her round avatar in the header, and the window icon."""
         try:
-            stamp = (str(path), path.stat().st_mtime_ns)
-            if getattr(self, '_mascot_cache', (None,))[0] != stamp:  # decode the picture once, not on every theme change
-                with Image.open(path) as picture: image = picture.convert('RGBA')
-                portrait = image.copy(); portrait.thumbnail((180, 240), Image.Resampling.LANCZOS)
-                self._mascot_cache = (stamp, image)
+            if getattr(self, '_mascot_cache', None) is None:  # decode the pictures once, not on every theme change
+                with Image.open(appearance.MASCOT_ART) as picture: art = picture.convert('RGBA')
+                with Image.open(appearance.MASCOT_AVATAR) as picture: avatar = picture.convert('RGBA')
+                portrait = art.copy(); portrait.thumbnail((180, 240), Image.Resampling.LANCZOS)
+                self._mascot_cache = avatar
                 self._mascot_portrait_image = ImageTk.PhotoImage(portrait)
                 self.mascot_portrait.configure(image=self._mascot_portrait_image)
-            image = self._mascot_cache[1]
-            self._orb_image = ImageTk.PhotoImage(gloss.orb(42, appearance.face_crop(image, not self.appearance['mascot_path']), self.tokens['accent']))
-            widgets.AVATAR['orb'] = self._orb_image if self.appearance['show_mascot'] else None
+            avatar = self._mascot_cache
+            self._orb_image = ImageTk.PhotoImage(gloss.orb(42, avatar, self.tokens['accent']))
+            widgets.AVATAR['orb'] = self._orb_image
             widgets.AVATAR['version'] = APP_VERSION
             self._refresh_header()
             # The window icon (several sizes) isn't needed to show the new theme, so make it right after.
             if getattr(self, '_icon_job', None): self.after_cancel(self._icon_job)
-            self._icon_job = self.after(150, lambda i=image: self._set_window_icon(i))
-        except (OSError, ValueError):
-            self.appearance_status.configure(text='Mascot image not found or unsupported.')
+            self._icon_job = self.after(150, lambda i=avatar: self._set_window_icon(i))
+        except (OSError, ValueError) as exc:
+            self._file_log(f'Mascot artwork could not be loaded: {exc}')
 
-    def _set_window_icon(self, image):
+    def _set_window_icon(self, avatar):
         """Title-bar and taskbar icon: the same round glass avatar as the header, at every size Windows asks for."""
-        face = appearance.face_crop(image, not self.appearance['mascot_path'])
-        key = (self.appearance['mascot_path'], self.tokens['accent'])
+        key = self.tokens['accent']
         if getattr(self, '_icon_key', None) == key: return
         self._icon_key = key
-        icons = gloss.icon_set(face, self.tokens['accent'])
+        icons = gloss.icon_set(avatar, self.tokens['accent'])
         self._icon_images = [ImageTk.PhotoImage(icons[size]) for size in (256, 128, 64, 48, 32, 16)]
         self._icon_image = self._icon_images[2]
         self.iconphoto(True, *self._icon_images)
-
-    def _choose_mascot(self):
-        path = filedialog.askopenfilename(parent=self, title='Choose mascot image', filetypes=[('Images','*.png *.jpg *.jpeg *.webp'), ('All files','*.*')])
-        if not path: return
-        try:
-            with Image.open(path) as image: image.verify()
-        except (OSError, ValueError):
-            self.appearance_status.configure(text='Cannot open image.'); return
-        self.appearance['mascot_path'] = path; self.appearance['show_mascot'] = True; self.mascot_var.set(True)
-        self._apply_appearance()
-
-    def _restore_mascot(self):
-        self.appearance['mascot_path'] = ''; self.appearance['show_mascot'] = True; self.mascot_var.set(True)
-        self._apply_appearance()
 
     # ---- storage ---------------------------------------------------------------------------------
     def _cache_dir(self):

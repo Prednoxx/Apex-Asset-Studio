@@ -80,6 +80,12 @@ def rarity(t):
     need = 7 if ACTIVE.get('contrast') else 4.5
     return {key: readable(color, t['surface'], need, t['text']) for key, color in colors.items()}
 DEFAULT_PRESET = DEFAULT_STYLE
+# The mascot, Ruka-tan: full artwork (startup screen, Settings, accent color) and her round avatar (header, icons).
+_RESOURCES = __import__('pathlib').Path(__file__).resolve().parents[1] / 'resources'
+MASCOT_NAME = 'Ruka-tan'
+MASCOT_ART = _RESOURCES / 'ruka.webp'
+MASCOT_AVATAR = _RESOURCES / 'ruka_avatar.png'
+MASCOT_ACCENT = '#4b80c6'  # her ribbon blue (the Aero themes' accent when 'match accent' is on)
 ACTIVE = {'style': DEFAULT_STYLE, 'scale': 1.0, 'contrast': False, 'reduce': False, 'mascot_accent': None}
 
 
@@ -121,8 +127,6 @@ def normalize(value):
     layout = value.get('layout', LAYOUTS[0])
     return dict(version=SETTINGS_VERSION, preset=preset, base=base, colors=colors,
                 layout=layout if layout in LAYOUTS else LAYOUTS[0],
-                mascot_path=value.get('mascot_path', '') if isinstance(value.get('mascot_path', ''), str) else '',
-                show_mascot=value.get('show_mascot', True) is not False,
                 text_scale=value.get('text_scale') if value.get('text_scale') in dict(TEXT_SCALES).values() else 1.0,
                 high_contrast=value.get('high_contrast') is True, reduce_effects=value.get('reduce_effects') is True,
                 mascot_accent=value.get('mascot_accent', True) is not False)
@@ -233,30 +237,6 @@ def fonts(app, name=None):
         resolved[key] = (family, size, chosen) if chosen != 'normal' else (family, size)
     _FONT_CACHE[key_] = resolved
     return resolved
-
-
-def face_crop(image, default=True):
-    """Square crop around the face: tuned for the bundled art, top-center for other images."""
-    w, h = image.size
-    if default: return image.crop((int(w*.25), int(h*.01), int(w*.87), int(h*.01 + w*.62)))
-    side = int(min(w, h) * .6); left = (w - side) // 2
-    return image.crop((left, 0, left + side, side))
-
-
-def avatar(image, size, ring, default=True):
-    """Round avatar: the artwork's face area on a colored disc (the art's transparency shows the disc)."""
-    from PIL import Image, ImageDraw
-    w, h = image.size
-    if default:  # tuned for the bundled artwork
-        box = (int(w*.25), int(h*.01), int(w*.87), int(h*.01 + w*.62))
-    else:
-        side = int(min(w, h) * .6); left = (w - side) // 2
-        box = (left, 0, left + side, side)
-    crop = image.crop(box).resize((size*4, size*4), Image.Resampling.LANCZOS)
-    disc = Image.new('RGBA', crop.size, (*_rgb(ring), 255)); disc.alpha_composite(crop)
-    mask = Image.new('L', crop.size, 0); ImageDraw.Draw(mask).ellipse((0, 0, crop.width - 1, crop.height - 1), fill=255)
-    disc.putalpha(mask)
-    return disc.resize((size, size), Image.Resampling.LANCZOS)
 
 
 def _png(image):
