@@ -32,7 +32,7 @@ No font files are included. The app uses fonts installed with Windows (Segoe UI,
 
 ## Artwork
 
-- Mascot: Ruka-tan (Ruka Sarashina) from *Rent-A-Girlfriend* (*Kanojo, Okarishimasu*) by Reiji Miyajima, published by Kodansha. Character and artwork rights belong to their respective owners; the artwork is not covered by this project's license. Files: `resources/ruka.webp`, `resources/ruka_avatar.png`, `resources/app_icon.ico`.
+- Mascot: Lumi-tan, from "Free Anime Girl Character Sprite" by blackbunney (https://blackbunney.itch.io/free-anime-girl-character-sprite). Licensed for personal and commercial projects; the sprite may not be resold on its own. It is not covered by this project's license and may not be extracted and redistributed as a standalone asset. Files: `resources/lumi.webp`, `resources/lumi_avatar.png` (cropped, on a gradient background), `resources/app_icon.ico`.
 - Theme backgrounds (`resources/backgrounds`): royalty-free images supplied by the author, resized. `metro.jpg` is "Glass-covered facade" from Unsplash (Unsplash License). The center of `aurora.jpg` was retouched.
 
 ## Trademarks

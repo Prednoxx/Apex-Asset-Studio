@@ -81,12 +81,12 @@ def rarity(t):
     need = 7 if ACTIVE.get('contrast') else 4.5
     return {key: readable(color, t['surface'], need, t['text']) for key, color in colors.items()}
 DEFAULT_PRESET = DEFAULT_STYLE
-# The mascot, Ruka-tan: full artwork (startup screen, Settings, accent color) and her round avatar (header, icons).
+# The mascot, Lumi-tan: full artwork (startup screen, Settings) and her avatar (header orb, window/app icon).
 _RESOURCES = __import__('pathlib').Path(__file__).resolve().parents[1] / 'resources'
-MASCOT_NAME = 'Ruka-tan'
-MASCOT_ART = _RESOURCES / 'ruka.webp'
-MASCOT_AVATAR = _RESOURCES / 'ruka_avatar.png'
-MASCOT_ACCENT = '#4b80c6'  # her ribbon blue (the Aero themes' accent when 'match accent' is on)
+MASCOT_NAME = 'Lumi-tan'
+MASCOT_ART = _RESOURCES / 'lumi.webp'
+MASCOT_AVATAR = _RESOURCES / 'lumi_avatar.png'
+MASCOT_ACCENT = '#0fb58a'  # her hair teal (the Aero themes' accent when 'Use mascot accent color' is on)
 ACTIVE = {'style': DEFAULT_STYLE, 'scale': 1.0, 'contrast': False, 'reduce': False, 'mascot_accent': None}
 
 

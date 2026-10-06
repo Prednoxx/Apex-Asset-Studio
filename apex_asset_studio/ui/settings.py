@@ -319,7 +319,7 @@ class SettingsPage:
         self.status_var.set(f'Text size: {appearance.TEXT_SCALES[index][0]}')
 
     def _load_mascot(self):
-        """Ruka-tan's portrait (Settings), her round avatar in the header, and the window icon."""
+        """Mascot portrait (Settings), header avatar and window icon."""
         try:
             if getattr(self, '_mascot_cache', None) is None:  # decode the pictures once, not on every theme change
                 with Image.open(appearance.MASCOT_ART) as picture: art = picture.convert('RGBA')

@@ -60,6 +60,6 @@ Requires Python 3.11 or newer. `build_windows.bat` installs the dependencies, ru
 
 Apex Asset Studio is a fan-made tool. It is not affiliated with, endorsed or sponsored by Electronic Arts Inc. or Respawn Entertainment. Apex Legends is a trademark of Electronic Arts Inc. No game files are included; the app reads the copy of the game installed on your PC. Exported game content remains the property of its owners.
 
-Mascot: Ruka-tan (Ruka Sarashina) from *Rent-A-Girlfriend* (*Kanojo, Okarishimasu*) by Reiji Miyajima, published by Kodansha. The mascot artwork is not covered by the software license.
+Mascot: Lumi-tan, sprite by [blackbunney](https://blackbunney.itch.io/free-anime-girl-character-sprite). The sprite is not covered by the software license and may not be resold on its own.
 
 Licensed under the GNU Affero General Public License v3.0 or later (`LICENSE`). Third-party components and credits: `THIRD_PARTY_NOTICES.md`.
