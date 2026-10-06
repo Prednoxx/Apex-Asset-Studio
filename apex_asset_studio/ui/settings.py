@@ -81,6 +81,8 @@ class SettingsPage:
         limit = ttk.Combobox(limits, textvariable=self.cache_limit_var, state='readonly', width=8,
                              values=tuple(f'{n} GB' for n in (4, 8, 12, 24, 48)))
         limit.pack(side='left'); limit.bind('<<ComboboxSelected>>', lambda _e: self._set_cache_limit())
+        widgets.tip(limit, 'Unpacked game files above this size are deleted oldest-first. Smaller saves disk space; '
+                           'larger makes reopening models faster.')
         ttk.Label(limits, text='Older files are removed automatically above this size.', style='Muted.TLabel').pack(side='left', padx=(12, 0))
         cache_buttons = ttk.Frame(storage); cache_buttons.pack(anchor='w', pady=(12, 0))
         self.clear_cache_btn = ttk.Button(cache_buttons, text='Clear cache', command=self._clear_cache)
@@ -98,10 +100,12 @@ class SettingsPage:
                             command=lambda: self._set_option('text_scale', self.text_scale_var.get())).pack(side='left', padx=(0, 14))
         self.contrast_var = tk.BooleanVar(value=self.appearance['high_contrast'])
         self.reduce_var = tk.BooleanVar(value=self.appearance['reduce_effects'])
-        ttk.Checkbutton(access, text='High contrast text and dividers', variable=self.contrast_var,
-                        command=lambda: self._set_option('high_contrast', self.contrast_var.get())).pack(anchor='w', pady=(10, 0))
-        ttk.Checkbutton(access, text='Reduce visual effects (plain backgrounds, softer gloss)', variable=self.reduce_var,
-                        command=lambda: self._set_option('reduce_effects', self.reduce_var.get())).pack(anchor='w', pady=(4, 0))
+        widgets.tip(ttk.Checkbutton(access, text='High contrast text and dividers', variable=self.contrast_var,
+                    command=lambda: self._set_option('high_contrast', self.contrast_var.get())),
+                    'Raises text contrast to WCAG AAA and makes dividers easier to see.').pack(anchor='w', pady=(10, 0))
+        widgets.tip(ttk.Checkbutton(access, text='Reduce visual effects (plain backgrounds, softer gloss)', variable=self.reduce_var,
+                    command=lambda: self._set_option('reduce_effects', self.reduce_var.get())),
+                    'Replaces the background pictures with a plain gradient and tones down the glossy highlights.').pack(anchor='w', pady=(4, 0))
         keys = ttk.Frame(access); keys.pack(anchor='w', pady=(14, 0))
         ttk.Label(keys, text='Keyboard shortcuts', style='Strong.TLabel').grid(row=0, column=0, columnspan=4, sticky='w', pady=(0, 6))
         for i, (combo, action) in enumerate(SHORTCUTS):
@@ -141,8 +145,9 @@ class SettingsPage:
         self.mascot_accent_var = tk.BooleanVar(value=self.appearance['mascot_accent'])
         ttk.Button(logo_controls, text='Change mascot…', command=self._choose_mascot).pack(anchor='w')
         ttk.Button(logo_controls, text='Use original artwork', style='Ghost.TButton', command=self._restore_mascot).pack(anchor='w', pady=(6, 12))
-        ttk.Checkbutton(logo_controls, text='Match accent color to mascot (Aero themes)', variable=self.mascot_accent_var,
-                        command=lambda: self._set_option('mascot_accent', self.mascot_accent_var.get())).pack(anchor='w')
+        widgets.tip(ttk.Checkbutton(logo_controls, text='Match accent color to mascot (Aero themes)', variable=self.mascot_accent_var,
+                    command=lambda: self._set_option('mascot_accent', self.mascot_accent_var.get())),
+                    "Aero Night and Aero Day take their main color from the mascot's outfit. Other themes keep their own colors.").pack(anchor='w')
         ttk.Checkbutton(logo_controls, text='Show mascot in header', variable=self.mascot_var, command=self._toggle_mascot).pack(anchor='w', pady=(4, 0))
         self.appearance_status = ttk.Label(body, text='', style='Muted.TLabel')
         self.appearance_status.pack(anchor='w', pady=(18, 0))
@@ -178,14 +183,15 @@ class SettingsPage:
         custom = self.appearance['preset'] == 'Custom'
         self.custom_theme_label.configure(text=f"Using custom colors on the {self.appearance['base']} theme. Pick a theme above to reset them." if custom else '')
 
-    def _viewport_painter(self, w, h, message):
-        """Backdrop art for the 3D viewport, with any empty-state message on a small glass card."""
-        t = self.tokens
+    def _viewport_painter(self, w, h, message, badge=''):
+        """Backdrop art for the 3D viewport, with any empty-state message on a small glass card and the playing
+        animation's name in the corner."""
+        t = self.tokens; scale = appearance.ACTIVE['scale']
         image = gloss.backdrop(appearance.fx()['backdrop'], (w, h), t, base=t['viewport'], energy=.6)
         if message:
             headline, _, rest = message.partition('\n\n')
-            image = gloss.caption(image, headline if rest else '', rest or headline, t, appearance.ACTIVE['scale'])
-        return image
+            image = gloss.caption(image, headline if rest else '', rest or headline, t, scale)
+        return gloss.badge(image, badge, t, scale)
 
     def _apply_appearance(self, save=True):
         self.appearance_status.configure(text='')
@@ -196,9 +202,12 @@ class SettingsPage:
         self.simple_assets.tag_configure('muted', foreground=c['faint'])
         for rarity, color in appearance.rarity(c).items(): self.simple_assets.tag_configure(rarity, foreground=color)
         self.preview.set_palette(c['viewport']); self.preview.set_backdrop(self._viewport_painter)
+        sky = appearance.mix(c['accent2'], '#ffffff', .25) if c['light'] else appearance.mix(c['accent2'], '#c8d0dc', .2)
+        ground = appearance.mix(c['accent'], '#2a2622', .15)
+        self.preview.set_lighting(sky, ground, appearance.mix(c['accent2'], '#ffffff', .5), c['light'])
         self._scale_columns()
         widgets.refresh(self, c)
-        self._draw_preset_cards(); self._apply_layout(); self._load_mascot()
+        self._draw_preset_cards(); self._apply_layout(); self._load_mascot(); self._fit_window()
         if save:
             try:
                 appearance.save(self.appearance_path, self.appearance)
@@ -211,8 +220,21 @@ class SettingsPage:
         self.appearance['colors'] = dict(appearance.STYLES[name]['colors'])
         self._sync_color_controls(); self._apply_appearance()
 
+    def _fit_window(self):
+        """Minimum window size grows with the text size (capped to the screen), and a window that is now too
+        small is enlarged, so larger text never clips controls off the edge."""
+        scale = appearance.ACTIVE.get('scale', 1.0)
+        width = min(int(1040 * scale), self.winfo_screenwidth() - 40)
+        height = min(int(660 * scale), self.winfo_screenheight() - 80)
+        self.minsize(width, height)
+        if self.state() == 'normal' and self.winfo_ismapped():
+            self.update_idletasks()
+            if self.winfo_width() < width or self.winfo_height() < height:
+                self.geometry(f'{max(width, self.winfo_width())}x{max(height, self.winfo_height())}')
+
     def _apply_layout(self):
         pane = self.workspace; nav, center, detail = self.workspace_panels
+        scale = appearance.ACTIVE.get('scale', 1.0)
         for panel in self.workspace_panels: panel.grid_forget()
         for column in range(3): pane.columnconfigure(column, weight=0, minsize=0, uniform='')
         for row in range(2): pane.rowconfigure(row, weight=0, minsize=0)
@@ -224,7 +246,7 @@ class SettingsPage:
             center.grid(row=0, column=1, sticky='nsew', padx=(0, 1))
             detail.grid(row=0, column=2, sticky='nsew')
             for i, weight in enumerate((2, 4, 6)): pane.columnconfigure(i, weight=weight)
-            pane.columnconfigure(0, minsize=220); pane.columnconfigure(1, minsize=340)
+            pane.columnconfigure(0, minsize=int(220 * scale)); pane.columnconfigure(1, minsize=int(340 * scale))
             pane.rowconfigure(0, weight=1)
         elif layout == 'Preview Focus':
             nav.grid(row=0, column=0, sticky='nsew', padx=(0, 1), pady=(0, 1))
@@ -236,7 +258,7 @@ class SettingsPage:
             nav.grid(row=0, column=0, rowspan=2, sticky='nsew', padx=(0, 1))
             center.grid(row=0, column=1, sticky='nsew', pady=(0, 1))
             detail.grid(row=1, column=1, sticky='nsew')
-            pane.columnconfigure(0, weight=2, minsize=220); pane.columnconfigure(1, weight=8)
+            pane.columnconfigure(0, weight=2, minsize=int(220 * scale)); pane.columnconfigure(1, weight=8)
             pane.rowconfigure(0, weight=2); pane.rowconfigure(1, weight=4)
 
     def _sync_color_controls(self):

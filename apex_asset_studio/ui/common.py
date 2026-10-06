@@ -88,3 +88,34 @@ def asset_lines(row):
         f"StarPak index:     {row['starpak_index'] if row['starpak_index'] is not None else '(none)'}",
         f"Opt StarPak:       {row['opt_starpak_offset'] or '(none)'}",
     ]
+
+
+class ScanEta:
+    """Time-left estimate for the library scan. Uses the pace of the last few dozen packages (skipped, unchanged
+    packages are fast, new ones slow, so a whole-run average would be wrong) and smooths the result so the text
+    doesn't jump around. Returns None until there is enough to go on."""
+    WINDOW = 40
+
+    def __init__(self, clock=None):
+        import time
+        self.clock = clock or time.monotonic
+        self.started = self.clock(); self.samples = []; self.smoothed = None
+
+    def update(self, current, total):
+        now = self.clock()
+        self.samples.append((now, current)); self.samples = self.samples[-self.WINDOW:]
+        if now - self.started < 10 or len(self.samples) < 8 or current >= total: return None
+        (t0, c0), (t1, c1) = self.samples[0], self.samples[-1]
+        if c1 <= c0 or t1 <= t0: return None
+        remaining = (total - current) * (t1 - t0) / (c1 - c0)
+        self.smoothed = remaining if self.smoothed is None else self.smoothed * .8 + remaining * .2
+        return self.smoothed
+
+    @staticmethod
+    def describe(seconds):
+        if seconds is None: return ''
+        minutes = round(seconds / 60)
+        if seconds < 50: return 'less than a minute left'
+        if minutes < 60: return f'about {max(1, minutes)} min left'
+        hours, minutes = divmod(minutes, 60)
+        return f'about {hours} h {minutes} min left' if minutes else f'about {hours} h left'

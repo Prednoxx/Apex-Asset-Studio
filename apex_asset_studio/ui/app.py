@@ -15,7 +15,7 @@ from ..catalog import Catalog
 from ..game_locator import find_apex_installations
 from . import appearance, widgets
 from .advanced import AdvancedPage
-from .common import APP_NAME, APP_VERSION, friendly_error, gb, make_sortable
+from .common import APP_NAME, APP_VERSION, ScanEta, friendly_error, gb, make_sortable
 from .library import LibraryPage
 from .settings import SettingsPage
 from .splash import StartupSplash
@@ -226,6 +226,7 @@ class ApexAssetStudioApp(LibraryPage, AdvancedPage, SettingsPage, tk.Tk):
 
         self.scan_stop.clear()
         self.progress_var.set(0)
+        self._scan_eta = ScanEta()
         self.log_text.delete("1.0", "end")
         self._set_scanning(True)
         self.status_var.set("Scanning Apex asset library…")
@@ -249,7 +250,8 @@ class ApexAssetStudioApp(LibraryPage, AdvancedPage, SettingsPage, tk.Tk):
                 event = self.events.get_nowait()
                 if event[0] == "progress":
                     _, msg, cur, total = event
-                    self.status_var.set(msg)
+                    left = ScanEta.describe(self._scan_eta.update(cur, total)) if getattr(self, '_scan_eta', None) else ''
+                    self.status_var.set(f'{msg}   ·   {left}' if left else msg)
                     self.progress_var.set((cur / max(total, 1)) * 100)
                     # Keep diagnostics readable: log actual work and sparse skip milestones.
                     if not msg.startswith("Up to date:") or cur % 250 == 0:
@@ -295,6 +297,7 @@ class ApexAssetStudioApp(LibraryPage, AdvancedPage, SettingsPage, tk.Tk):
                         "\nThis skin's materials can't be read yet, so it can't be exported. You can still preview it."))
                     self.status_var.set('Model loaded.' if model.material_family_resolved else "Model loaded. This skin can't be exported yet.")
                     if model.material_family_resolved: self._load_preview_textures(model,serial)
+                    self._refresh_export_controls()
                 elif event[0]=='preview_textures':
                     _,serial,textures,errors=event
                     if serial!=self._selection_serial: continue
@@ -368,6 +371,7 @@ class ApexAssetStudioApp(LibraryPage, AdvancedPage, SettingsPage, tk.Tk):
                     partial = '' if manifest['status'] == 'decoded' else ' Some materials were incomplete; see the manifest.'
                     self.status_var.set(f'Exported to {path.parent.name}.{partial}{getattr(self, "_blender_note", "")}')
                     self.open_export_btn.state(['!disabled'])
+                    self._refresh_export_controls()
                     self._log(f'Export manifest: {path}')
         except queue.Empty:
             pass
@@ -400,6 +404,7 @@ class ApexAssetStudioApp(LibraryPage, AdvancedPage, SettingsPage, tk.Tk):
         self.model_choice.configure(state='readonly' if not busy and self._model_choices and self._cosmetic else 'disabled')
         self.lod_choice.configure(state='readonly' if not busy and self._model else 'disabled')
         self.advanced_preview_btn.state(['disabled'])
+        self._refresh_export_controls(); self._update_badge()
         self._refresh_header()
 
     @staticmethod

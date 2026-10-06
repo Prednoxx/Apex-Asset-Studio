@@ -17,6 +17,50 @@ def pose_matrices(bones, positions, rotations, scales):
     return matrices
 
 
+VERTEX_SHADER = '''
+#version 120
+varying vec3 normal_view;
+varying vec2 uv;
+void main() {
+    normal_view = gl_NormalMatrix * gl_Normal;
+    uv = gl_MultiTexCoord0.xy;
+    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+}
+'''
+
+# Lighting is camera-relative (the key light stays upper-left as you orbit): wrapped diffuse key light, a sky/ground
+# hemisphere ambient tinted by the theme, a soft rim light and a small specular highlight. Output is linear; the
+# sRGB framebuffer encodes it. pass 0 draws opaque texels (alpha >= 0.5) with depth writes, pass 1 blends the soft
+# edges of hair and glass (alpha < 0.5) on top without writing depth.
+FRAGMENT_SHADER = '''
+#version 120
+uniform sampler2D tex;
+uniform bool textured;
+uniform int pass;
+uniform vec3 base_color;
+uniform vec3 sky;
+uniform vec3 ground;
+uniform vec3 rim_color;
+varying vec3 normal_view;
+varying vec2 uv;
+void main() {
+    vec4 color = textured ? texture2D(tex, uv) : vec4(base_color, 1.0);
+    if (pass == 0 && color.a < 0.5) discard;
+    if (pass == 1 && (color.a >= 0.5 || color.a < 0.02)) discard;
+    vec3 n = normalize(normal_view);
+    if (n.z < 0.0) n = -n;  // two-sided: the visible side of a thin surface faces the camera
+    vec3 key = normalize(vec3(-0.45, 0.65, 0.6));
+    float wrap = max((dot(n, key) + 0.35) / 1.35, 0.0);
+    float fill = max(dot(n, normalize(vec3(0.6, 0.1, 0.3))), 0.0) * 0.25;
+    vec3 ambient = mix(ground, sky, n.y * 0.5 + 0.5);
+    float rim = pow(1.0 - max(n.z, 0.0), 3.0) * 0.35;
+    float spec = pow(max(dot(n, normalize(key + vec3(0.0, 0.0, 1.0))), 0.0), 40.0) * 0.15;
+    vec3 lit = color.rgb * (ambient * 0.55 + wrap * vec3(1.0, 0.97, 0.92) * 0.85 + fill) + spec + rim * rim_color;
+    gl_FragColor = vec4(lit, pass == 1 ? color.a : 1.0);
+}
+'''
+
+
 def _linear(rgb):
     return [v/12.92 if v<=.04045 else ((v+.055)/1.055)**2.4 for v in rgb]
 
@@ -27,13 +71,15 @@ class ModelPreview(OpenGLFrame):
         self.vertices=np.empty((0,3),dtype=np.float32)
         self.normals=self.vertices.copy()
         self.faces=np.empty(0,dtype=np.uint32)
-        self.yaw=-.35; self.pitch=-.05; self.zoom=1.; self._drag=None
+        self.yaw=-.35; self.pitch=.18; self.zoom=1.; self._drag=None
         self.pan=np.zeros(2,dtype=np.float32)
         self._background='#16191d'; self._pending=None
         self._textures={}; self._new_textures={}; self._texture_key=None
         # Backdrop art: painter(width, height, message) -> PIL RGBA image, drawn behind the model as one texture.
         # Empty-state messages ('Select an item…') are painted into it, so they sit on the art without a box.
-        self._painter=None; self.message=''; self._bg_key=None; self._bg_texture=None; self._bg_timer=None
+        self._painter=None; self.message=''; self.badge=''; self._bg_key=None; self._bg_texture=None; self._bg_timer=None
+        self._program=None; self._shader_failed=False
+        self._light=dict(sky=(.55,.6,.68), ground=(.12,.11,.1), rim=(.5,.55,.65), shadow=.45)
         self.bind('<ButtonPress-1>',self._down)
         self.bind('<B1-Motion>',self._move)
         self.bind('<MouseWheel>',self._wheel)
@@ -64,10 +110,28 @@ class ModelPreview(OpenGLFrame):
         GL.glEnableClientState(GL.GL_NORMAL_ARRAY)
         GL.glEnableClientState(GL.GL_TEXTURE_COORD_ARRAY)
         GL.glEnable(GL.GL_FRAMEBUFFER_SRGB)
+        if self._program is None and not self._shader_failed:
+            try:
+                from OpenGL.GL import shaders
+                self._program=shaders.compileProgram(shaders.compileShader(VERTEX_SHADER,GL.GL_VERTEX_SHADER),
+                                                     shaders.compileShader(FRAGMENT_SHADER,GL.GL_FRAGMENT_SHADER),validate=False)
+                self._uniforms={n:GL.glGetUniformLocation(self._program,n) for n in ('tex','textured','pass','base_color','sky','ground','rim_color')}
+            except Exception as exc:  # very old drivers: keep the fixed-function path
+                self._shader_failed=True; self.shader_error=str(exc)
         self.schedule()
 
     def set_palette(self, background):
         self._background=background; self.schedule()
+
+    def set_lighting(self, sky, ground, rim, light_theme):
+        """Theme-tinted ambient light (hex colors) and how dark the ground shadow is."""
+        self._light=dict(sky=tuple(_linear(self._rgb(sky))), ground=tuple(_linear(self._rgb(ground))),
+                         rim=tuple(_linear(self._rgb(rim))), shadow=.38 if light_theme else .6)
+        self.schedule()
+
+    def set_badge(self, text):
+        """Small caption in the corner of the view (the playing animation)."""
+        if text!=self.badge: self.badge=text; self._bg_key=None; self.schedule()
 
     def set_backdrop(self, painter):
         self._painter=painter; self._bg_key=None; self.schedule()
@@ -111,6 +175,8 @@ class ModelPreview(OpenGLFrame):
         for i,bone in enumerate(model.bones): self.inverse_bind[i,:3]=np.asarray(bone.inverse_bind).reshape(3,4)
         self.center=(self.vertices.min(axis=0)+self.vertices.max(axis=0))/2
         self.span=max(float(np.ptp(self.vertices,axis=0).max()),.001)
+        lo,hi=self.vertices.min(axis=0),self.vertices.max(axis=0)  # ground shadow: under the feet, sized to the footprint
+        self.floor=(float(lo[1]),float((lo[0]+hi[0])/2),float((lo[2]+hi[2])/2),max(float(hi[0]-lo[0])*.9,float(hi[2]-lo[2])*.9,self.span*.38))
         self.zoom=1.; self._message(''); self.schedule()
 
     def set_textures(self, textures):
@@ -118,7 +184,7 @@ class ModelPreview(OpenGLFrame):
         self._new_textures.update(textures);self.schedule()
 
     def reset_view(self):
-        self.yaw=-.35;self.pitch=-.05;self.zoom=1.;self.pan[:]=0;self.schedule()
+        self.yaw=-.35;self.pitch=.18;self.zoom=1.;self.pan[:]=0;self.schedule()
 
     def destroy(self):
         if self._pending is not None:self.after_cancel(self._pending);self._pending=None
@@ -182,12 +248,12 @@ class ModelPreview(OpenGLFrame):
     def _refresh_backdrop(self, w, h):
         """Repaint the backdrop texture when the size, message or theme changes. While the view is being resized
         the old texture is stretched and the repaint waits until resizing pauses."""
-        key=(w,h,self.message,self._painter)
+        key=(w,h,self.message,self.badge,self._painter)
         if self._painter is None or key==self._bg_key: return
         if self._bg_texture is not None and self._bg_key and self._bg_key[2:]==key[2:] and self._bg_timer is None:
             self._bg_timer=self.after(140,self._resized); return
         if self._bg_timer is not None: return
-        image=self._painter(w,h,self.message).convert('RGBA').transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+        image=self._painter(w,h,self.message,self.badge).convert('RGBA').transpose(Image.Transpose.FLIP_TOP_BOTTOM)
         if self._bg_texture is None: self._bg_texture=GL.glGenTextures(1)
         GL.glBindTexture(GL.GL_TEXTURE_2D,self._bg_texture)
         GL.glTexParameteri(GL.GL_TEXTURE_2D,GL.GL_TEXTURE_MIN_FILTER,GL.GL_LINEAR)
@@ -245,9 +311,31 @@ class ModelPreview(OpenGLFrame):
         GL.glRotatef(math.degrees(self.pitch),1,0,0)
         GL.glRotatef(math.degrees(self.yaw),0,1,0)
         GL.glTranslatef(*(-self.center))
+        self._draw_shadow()
         GL.glVertexPointer(3,GL.GL_FLOAT,0,self.vertices)
         GL.glNormalPointer(GL.GL_FLOAT,0,self.normals)
         GL.glTexCoordPointer(2,GL.GL_FLOAT,0,self.uvs)
+        if self._program is None: return self._draw_fixed()
+        u=self._uniforms; light=self._light
+        GL.glUseProgram(self._program)
+        GL.glUniform1i(u['tex'],0); GL.glUniform3f(u['base_color'],.42,.46,.52)
+        GL.glUniform3f(u['sky'],*light['sky']); GL.glUniform3f(u['ground'],*light['ground']); GL.glUniform3f(u['rim_color'],*light['rim'])
+        GL.glActiveTexture(GL.GL_TEXTURE0)
+        for render_pass in (0,1):
+            GL.glUniform1i(u['pass'],render_pass)
+            if render_pass:
+                GL.glEnable(GL.GL_BLEND); GL.glBlendFunc(GL.GL_SRC_ALPHA,GL.GL_ONE_MINUS_SRC_ALPHA); GL.glDepthMask(GL.GL_FALSE)
+            for material,start,count,has_uv in self.draw_ranges:
+                textured=material in self._textures and has_uv
+                if render_pass and not textured: continue  # untextured meshes are fully opaque
+                GL.glUniform1i(u['textured'],int(textured))
+                if textured: GL.glBindTexture(GL.GL_TEXTURE_2D,self._textures[material])
+                GL.glDrawElements(GL.GL_TRIANGLES,count,GL.GL_UNSIGNED_INT,self.faces[start:start+count])
+        GL.glDepthMask(GL.GL_TRUE); GL.glDisable(GL.GL_BLEND)
+        GL.glUseProgram(0)
+
+    def _draw_fixed(self):
+        """Fallback for drivers without GLSL: the original fixed-function lighting."""
         for material,start,count,has_uv in self.draw_ranges:
             if material in self._textures and has_uv:
                 GL.glEnable(GL.GL_TEXTURE_2D);GL.glBindTexture(GL.GL_TEXTURE_2D,self._textures[material])
@@ -255,3 +343,22 @@ class ModelPreview(OpenGLFrame):
             else: GL.glDisable(GL.GL_TEXTURE_2D);GL.glDisable(GL.GL_ALPHA_TEST)
             GL.glDrawElements(GL.GL_TRIANGLES,count,GL.GL_UNSIGNED_INT,self.faces[start:start+count])
         GL.glDisable(GL.GL_TEXTURE_2D);GL.glDisable(GL.GL_ALPHA_TEST)
+
+    def _draw_shadow(self):
+        """Soft contact shadow: a disc on the ground plane that fades out from the middle of the footprint."""
+        floor=getattr(self,'floor',None)
+        if not floor: return
+        y,cx,cz,radius=floor; strength=self._light['shadow']
+        GL.glDisable(GL.GL_LIGHTING); GL.glDisable(GL.GL_TEXTURE_2D)
+        GL.glEnable(GL.GL_BLEND); GL.glBlendFunc(GL.GL_SRC_ALPHA,GL.GL_ONE_MINUS_SRC_ALPHA); GL.glDepthMask(GL.GL_FALSE)
+        for ring in range(6):  # concentric fans give a smooth falloff
+            inner,outer=ring/6,(ring+1)/6
+            a0,a1=strength*(1-inner)**2,strength*(1-outer)**2
+            GL.glBegin(GL.GL_TRIANGLE_STRIP)
+            for k in range(49):
+                angle=k/48*math.tau; c,s_=math.cos(angle),math.sin(angle)
+                GL.glColor4f(0,0,0,a0); GL.glVertex3f(cx+c*radius*inner,y,cz+s_*radius*inner)
+                GL.glColor4f(0,0,0,a1); GL.glVertex3f(cx+c*radius*outer,y,cz+s_*radius*outer)
+            GL.glEnd()
+        GL.glDepthMask(GL.GL_TRUE); GL.glDisable(GL.GL_BLEND); GL.glColor4f(1,1,1,1)
+        GL.glEnable(GL.GL_LIGHTING)

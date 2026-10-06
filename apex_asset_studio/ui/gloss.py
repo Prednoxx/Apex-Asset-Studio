@@ -30,7 +30,7 @@ def soft(image, radius):
 
 
 def _vgradient(size, top, bottom):
-    w, h = size
+    w, h = max(1, int(size[0])), max(1, int(size[1]))
     column = Image.new('RGBA', (1, h))
     for y in range(h):
         k = y / max(1, h - 1)
@@ -293,6 +293,7 @@ def caption(image, headline, body, t, scale=1.0):
     cw = max([hw] + [measure(l, small)[0] for l in lines]) + int(56 * scale)
     ch = (hh + int(14 * scale) if headline else 0) + lh * len(lines) + int(40 * scale)
     cw, ch = min(cw, w - 20), min(ch, h - 20)
+    if cw < 40 or ch < 24: return image  # view too small for a message
     x0, y0 = (w - cw) // 2, int((h - ch) * .42)
     out = glass(image, (x0, y0, x0 + cw, y0 + ch), t['surface'], radius=int(14 * scale), blur=10, tint_alpha=150)
     d = ImageDraw.Draw(out); y = y0 + int(20 * scale)
@@ -328,3 +329,17 @@ def radio_mark(size, fill, edge, dot=None, shine=1.0):
         mask = Image.new('L', dot_img.size, 0); ImageDraw.Draw(mask).ellipse((0, 0, dot_img.width - 1, dot_img.height - 1), fill=255)
         out.paste(dot_img, (W // 4, W // 4), mask)
     return out.resize((size, size), Image.Resampling.LANCZOS)
+
+
+def badge(image, text, t, scale=1.0):
+    """Small glass label in the bottom-left corner of the viewport (the playing animation)."""
+    if not text: return image
+    font = pil_font(12 * scale, 'semibold'); d = ImageDraw.Draw(image)
+    box = d.textbbox((0, 0), text, font=font); tw, th = box[2] - box[0], box[3] - box[1]
+    pad_x, pad_y, margin = int(12 * scale), int(7 * scale), int(12 * scale)
+    w, h = image.size
+    x1 = min(w - margin, margin + tw + pad_x * 2); y1 = h - margin; y0 = y1 - th - pad_y * 2
+    if x1 - margin < 40 or y0 < margin: return image
+    out = glass(image, (margin, y0, x1, y1), t['surface'], radius=(y1 - y0) // 2, blur=8, tint_alpha=170)
+    ImageDraw.Draw(out).text((margin + pad_x, y0 + pad_y - box[1]), text, font=font, fill=rgb(t['text']))
+    return out

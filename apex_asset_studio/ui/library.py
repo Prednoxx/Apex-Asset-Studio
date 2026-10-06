@@ -48,6 +48,7 @@ class LibraryPage:
         self.animation_name = tk.StringVar()
         self.frame_var = tk.DoubleVar(value=0)
         self.include_animation = tk.BooleanVar(value=True)
+        self.export_kind = tk.StringVar(value='model')
         self.animation_name.trace_add('write', self._update_animation_display)
         self.frame_var.trace_add('write', self._update_frame_text)
         self._animation_picker = None
@@ -87,6 +88,37 @@ class LibraryPage:
         name = self.animation_name.get()
         self.animation_display.set(name or 'Bind pose. Browse animations to pick a clip.')
         self._update_frame_text()
+        self._update_badge()
+
+    @staticmethod
+    def _clip_title(clip):
+        return Path(str(clip.get('name') or 'Animation')).stem.replace('_', ' ').strip().title()
+
+    def _update_badge(self):
+        """Name, length and play state of the current animation, shown in the corner of the 3D view."""
+        if not hasattr(self, 'preview'): return
+        clip = self._animation
+        text = ''
+        if clip is not None:
+            seconds = clip['frames'] / max(clip['fps'], 1)
+            text = f"{'Playing' if self._playing else 'Paused'}  ·  {self._clip_title(clip)}  ·  {seconds:.1f} s"
+        self.preview.set_badge(text)
+        if clip is None and self.export_kind.get() == 'animation': self.export_kind.set('model')
+        self._refresh_export_controls()
+
+    def _refresh_export_controls(self):
+        """Export button label and which options apply, for 'Model' or 'Animation only'."""
+        if not hasattr(self, 'export_btn'): return
+        animation_only = self.export_kind.get() == 'animation'
+        self.export_btn.text = 'Export animation' if animation_only else 'Export model'
+        idle = not self._busy and not self._scanning and not getattr(self, '_loading', False)
+        model_ready = bool(self._model and self._model.material_family_resolved)
+        enabled = idle and self._model is not None and (self._animation is not None if animation_only else model_ready)
+        self.export_btn.state(['!disabled'] if enabled else ['disabled'])
+        for widget in self._model_export_options:
+            widget.state(['disabled'] if animation_only or not idle else ['!disabled'])
+        self.include_animation_check.state(['!disabled'] if idle and not animation_only and self._animation is not None else ['disabled'])
+        self.animation_export_btn.state(['!disabled'] if self._animation is not None and idle else ['disabled'])
 
     def _build_library(self):
         f = appearance.fonts(self)
@@ -124,17 +156,19 @@ class LibraryPage:
         entry.bind('<Escape>', lambda _e: self.simple_search_var.set(''))
         self._placeholder(entry, self.simple_search_var, 'Search this list')
         self.simple_search_var.trace_add('write', lambda *_: self._debounce_search())
-        filters = ttk.Frame(center, style='Panel.TFrame'); filters.pack(fill='x', pady=(0, 8), padx=(0, 8))
+        filters = widgets.Flow(center, gap=(12, 6)); filters.pack(fill='x', pady=(0, 8), padx=(0, 8))
         self.rarity_filter_var = tk.StringVar(value='All rarities')
         self.hide_unavailable_var = tk.BooleanVar(value=self.session.get('hide_unavailable', False))
         self.search_all_var = tk.BooleanVar(value=False)
         rarity = ttk.Combobox(filters, textvariable=self.rarity_filter_var, state='readonly', width=13,
                               values=('All rarities', 'Common', 'Rare', 'Epic', 'Legendary', 'Mythic'))
-        rarity.pack(side='left'); rarity.bind('<<ComboboxSelected>>', lambda _e: self._search_simple())
-        ttk.Checkbutton(filters, text='Hide unavailable', variable=self.hide_unavailable_var, style='Panel.TCheckbutton',
-                        command=self._search_simple).pack(side='left', padx=(12, 0))
-        ttk.Checkbutton(filters, text='Search all skins', variable=self.search_all_var, style='Panel.TCheckbutton',
-                        command=self._search_simple).pack(side='left', padx=(12, 0))
+        filters.add(rarity); rarity.bind('<<ComboboxSelected>>', lambda _e: self._search_simple())
+        filters.add(widgets.tip(ttk.Checkbutton(filters, text='Hide unavailable', variable=self.hide_unavailable_var,
+                    style='Panel.TCheckbutton', command=self._search_simple),
+                    "Hide skins whose model isn't in your game files, so they can't be previewed or exported."))
+        filters.add(widgets.tip(ttk.Checkbutton(filters, text='Search all skins', variable=self.search_all_var,
+                    style='Panel.TCheckbutton', command=self._search_simple),
+                    'Search every Legend and weapon at once instead of only the one picked on the left.'))
         assets_body = ttk.Frame(center, style='Panel.TFrame')
         assets_body.pack(fill='both', expand=True)
         cols = ('name', 'quality', 'state')
@@ -156,8 +190,8 @@ class LibraryPage:
         titles.pack(side='left', fill='x', expand=True)
         ttk.Label(titles, textvariable=self.inspector_title, style='Title.Panel.TLabel', width=1).pack(fill='x')
         ttk.Label(titles, textvariable=self.inspector_meta, style='Data.Panel.TLabel', width=1).pack(fill='x', pady=(3, 0))
-        ttk.Button(head, text='Reset view', style='Ghost.Panel.TButton', command=lambda: self.preview.reset_view()).pack(side='right', anchor='n')
-
+        widgets.tip(ttk.Button(head, text='Reset view', style='Ghost.Panel.TButton', command=lambda: self.preview.reset_view()),
+                    'Put the camera back to the starting angle and zoom (R).').pack(side='right', anchor='n')
 
         viewport = ttk.Frame(detail, style='Hairline.TFrame', padding=1)
         self.preview = ModelPreview(viewport, height=300)
@@ -170,25 +204,24 @@ class LibraryPage:
         self.model_choice = ttk.Combobox(model_bar, textvariable=self.model_choice_var, state='disabled', width=20)
         self.model_choice.pack(side='left', fill='x', expand=True)
         self.model_choice.bind('<<ComboboxSelected>>', lambda _e: self._load_cosmetic_model())
+        widgets.tip(self.model_choice, 'Which model of this skin to show: full body, first-person arms, and so on.')
         ttk.Label(model_bar, text='LOD', style='Section.Panel.TLabel').pack(side='left', padx=(16, 8))
         self.lod_choice = ttk.Combobox(model_bar, textvariable=self.lod_var, state='disabled', width=7)
         self.lod_choice.pack(side='left')
+        widgets.tip(self.lod_choice, 'Level of detail. LOD 0 is the most detailed; higher numbers are the simpler meshes '
+                                     'the game shows at a distance.')
         self.lod_choice.bind('<<ComboboxSelected>>', lambda _e: self._render_model())
 
         self.simple_info = tk.Text(detail, height=3, wrap='word', font=f['small'], state='disabled', cursor='arrow')
         self.simple_info.flush = True; self.simple_info.font_key = 'small'
 
         anim = ttk.Frame(detail, style='Panel.TFrame')
-        top = ttk.Frame(anim, style='Panel.TFrame')
-        top.pack(fill='x')
-        self._section(top, 'Animation').pack(side='left', fill='x', expand=True, padx=(0, 8))
-        self.animation_export_btn = ttk.Button(top, text='Export animation…', style='Ghost.Panel.TButton',
-                                               command=self._export_animation, state='disabled')
-        self.animation_export_btn.pack(side='right')
-        self.animations_btn = ttk.Button(top, text='Browse animations…', style='Ghost.Panel.TButton',
-                                         command=self._show_declared_animations, state='disabled')
-        self.animations_btn.pack(side='right', padx=(0, 2))
-        ttk.Label(anim, textvariable=self.animation_display, style='Panel.TLabel', width=1).pack(fill='x', pady=(4, 6))
+        self._section(anim, 'Animation').pack(fill='x')
+        actions = widgets.Flow(anim, gap=(4, 2)); actions.pack(fill='x', pady=(2, 0))
+        self.animations_btn = actions.add(widgets.tip(ttk.Button(actions, text='Browse animations…', style='Ghost.Panel.TButton',
+                                          command=self._show_declared_animations, state='disabled'),
+                                          'Pick one of the animations made for this model and play it here.'), gap=0)
+        ttk.Label(anim, textvariable=self.animation_display, style='Panel.TLabel', width=1).pack(fill='x', pady=(2, 6))
         transport = ttk.Frame(anim, style='Panel.TFrame')
         transport.pack(fill='x')
         self.play_btn = ttk.Button(transport, text='Play', width=6, command=self._toggle_animation, state='disabled')
@@ -199,41 +232,51 @@ class LibraryPage:
         self.frame_slider.pack(side='left', fill='x', expand=True, padx=(12, 8))
 
         export = ttk.Frame(detail, style='Panel.TFrame')
-        export_top = ttk.Frame(export, style='Panel.TFrame')
-        export_top.pack(fill='x')
-        self._section(export_top, 'Export').pack(side='left', fill='x', expand=True, padx=(0, 8))
-        self.open_export_btn = ttk.Button(export_top, text='Open last export', style='Ghost.Panel.TButton',
-                                          command=self._open_last_export)
-        self.open_export_btn.pack(side='right')
-        self.open_export_btn.state(['disabled'])
-        self.open_source_btn = ttk.Button(export_top, text='Show source file', style='Ghost.Panel.TButton',
-                                          command=lambda: self._open_selected_container('simple'))
-        self.open_source_btn.pack(side='right')
-        self.open_source_btn.state(['disabled'])
+        self._section(export, 'Export').pack(fill='x')
+        links = widgets.Flow(export, gap=(4, 2)); links.pack(fill='x', pady=(2, 0))
+        self.open_source_btn = links.add(widgets.tip(ttk.Button(links, text='Show source file', style='Ghost.Panel.TButton',
+                                         command=lambda: self._open_selected_container('simple')),
+                                         'Open the game folder that holds the package this model comes from.'), gap=0)
+        self.open_export_btn = links.add(widgets.tip(ttk.Button(links, text='Open last export', style='Ghost.Panel.TButton',
+                                         command=self._open_last_export), 'Open the folder of the most recent export.'))
+        self.open_source_btn.state(['disabled']); self.open_export_btn.state(['disabled'])
         folder = ttk.Frame(export, style='Panel.TFrame')
         folder.pack(fill='x', pady=(4, 10))
         self.export_folder_entry = ttk.Entry(folder, textvariable=self.export_path_var)
         self.export_folder_entry.pack(side='left', fill='x', expand=True)
         self.export_folder_btn = ttk.Button(folder, text='Browse…', command=self._choose_export_folder)
         self.export_folder_btn.pack(side='left', padx=(6, 0))
-        bar = ttk.Frame(export, style='Panel.TFrame')
-        bar.pack(fill='x')
-        formats = ttk.Frame(export, style='Panel.TFrame'); formats.pack(fill='x', pady=(0, 6))
-        ttk.Label(formats, text='Formats', style='Muted.Panel.TLabel').pack(side='left', padx=(0, 10))
-        self.format_vars = {}
+        kinds = widgets.Flow(export, gap=(16, 6)); kinds.pack(fill='x', pady=(0, 6))
+        kinds.add(ttk.Label(kinds, text='Export', style='Muted.Panel.TLabel'))
+        kinds.add(widgets.tip(ttk.Radiobutton(kinds, text='Model', value='model', variable=self.export_kind, style='Panel.TRadiobutton',
+                  command=self._refresh_export_controls), 'The skin with its skeleton, materials and textures.'), gap=12)
+        self.animation_export_btn = kinds.add(widgets.tip(ttk.Radiobutton(kinds, text='Animation only', value='animation',
+                                              variable=self.export_kind, style='Panel.TRadiobutton', state='disabled',
+                                              command=self._refresh_export_controls),
+                                              'Just the animation in the preview: a GLB with the skeleton and motion, plus an .aas.json '
+                                              'for the Blender add-on. Pick an animation first.'))
+        options = widgets.Flow(export, gap=(16, 6)); options.pack(fill='x', pady=(0, 10))
+        self.all_lods_check = options.add(widgets.tip(ttk.Checkbutton(options, text='All detail levels', variable=self.all_lods_var,
+                                          style='Panel.TCheckbutton'), 'Also export the lower-detail LOD meshes, not just LOD 0.'))
+        self.include_animation_check = options.add(widgets.tip(ttk.Checkbutton(options, text='Include animation', variable=self.include_animation,
+                                                   state='disabled', style='Panel.TCheckbutton'),
+                                                   'Add the animation playing in the preview to the export.'))
+        hints = {'.glb': 'One binary file with everything inside. Best for Blender.',
+                 '.gltf': 'Text glTF with separate files. Same content as GLB.',
+                 '.cast': 'CAST format for other tools. Uses inches; the Blender add-on needs GLB or glTF too.'}
+        formats = ttk.Frame(options, style='Panel.TFrame')  # the format checkboxes wrap as one group
+        options.add(formats)
+        ttk.Label(formats, text='Formats', style='Muted.Panel.TLabel').pack(side='left', padx=(0, 8))
+        self.format_vars = {}; self._model_export_options = [self.all_lods_check]
         for ext, label in (('.glb', 'GLB'), ('.gltf', 'glTF'), ('.cast', 'CAST')):
             var = tk.BooleanVar(value=ext in self.session.get('formats', ['.glb', '.cast']))
             var.trace_add('write', lambda *_: self._remember_formats())
             self.format_vars[ext] = var
-            ttk.Checkbutton(formats, text=label, variable=var, style='Panel.TCheckbutton').pack(side='left', padx=(0, 14))
-        self.all_lods_check = ttk.Checkbutton(bar, text='All detail levels', variable=self.all_lods_var, style='Panel.TCheckbutton')
-        self.all_lods_check.pack(side='left')
-        self.include_animation_check = ttk.Checkbutton(bar, text='Include animation', variable=self.include_animation,
-                                                       state='disabled', style='Panel.TCheckbutton')
-        self.include_animation_check.pack(side='left', padx=(18, 0))
-        self.export_btn = widgets.GlossButton(bar, 'Export model', command=self._export_model, height=36, width=240)
+            check = widgets.tip(ttk.Checkbutton(formats, text=label, variable=var, style='Panel.TCheckbutton'), hints[ext])
+            check.pack(side='left', padx=(0, 12)); self._model_export_options.append(check)
+        self.export_btn = widgets.GlossButton(export, 'Export model', command=self._export, height=36, width=240)
         self.export_btn.state(['disabled'])
-        self.export_btn.pack(side='right')
+        self.export_btn.pack(fill='x')
 
         rows = ((head, (0, 12)), (viewport, (0, 10)), (model_bar, (0, 6)), (self.simple_info, (2, 4)),
                 (ttk.Separator(detail), (8, 12)), (anim, (0, 0)), (ttk.Separator(detail), (14, 12)), (export, (0, 0)))
@@ -530,7 +573,7 @@ class LibraryPage:
         self._animation=clip;self.include_animation.set(True)
         self.animation_name.set(f'{clip["name"]} · {clip["frames"]} frames · {clip["fps"]:g} fps')
         self.frame_slider.configure(to=clip['frames']-1);self.frame_var.set(0)
-        self.preview.set_pose(clip,0);self._set_busy(False)
+        self.preview.set_pose(clip,0);self._set_busy(False);self._update_badge()
 
     def _load_animation(self,row,blend=0):
         if not self._model or self._busy: return
@@ -571,6 +614,7 @@ class LibraryPage:
             if self.frame_var.get()>=self._animation['frames']-1: self.frame_var.set(0)
             self._play_start=time.perf_counter()-self.frame_var.get()/self._animation['fps']
             self._tick_animation()
+        self._update_badge()
 
     def _tick_animation(self):
         self._play_timer=None
@@ -579,29 +623,38 @@ class LibraryPage:
         if frame>=clip['frames']:
             if clip['loop']: frame%=clip['frames']
             else:
-                frame=clip['frames']-1; self._playing=False; self.play_btn.configure(text='Play')
+                frame=clip['frames']-1; self._playing=False; self.play_btn.configure(text='Play'); self._update_badge()
         if frame!=int(self.frame_var.get()): self.frame_var.set(frame); self.preview.set_pose(clip,frame)
         if self._playing: self._play_timer=self.after(max(1,int(1000/clip['fps'])),self._tick_animation)
 
+    def _export(self):
+        """The Export button: model or animation, depending on the choice in the Export section."""
+        if self.export_kind.get() == 'animation': self._export_animation()
+        else: self._export_model()
+
+    def _export_label(self):
+        cosmetic = self._cosmetic
+        return f'{cosmetic["owner_name"]} - {cosmetic["name"]} - {self.model_choice_var.get()}' if cosmetic else Path(self._model.name).stem
+
     def _export_animation(self):
-        if self._animation is None or self._busy: return
-        Path(self.export_path_var.get()).mkdir(parents=True,exist_ok=True)
-        path=filedialog.asksaveasfilename(title='Export animation',initialdir=self.export_path_var.get(),
-            initialfile=safe_name(self._animation['name'])+'.aas.json',defaultextension='.aas.json',
-            filetypes=[('Apex Asset Studio','*.aas.json')],confirmoverwrite=False)
-        if not path: return
-        if not path.endswith('.aas.json'): path+='.aas.json'
-        targets=[Path(path),Path(path).with_name(Path(path).name[:-9]+'.glb')]
-        existing=[str(p) for p in targets if p.exists()]
-        if existing and not messagebox.askyesno('Replace files?','\n'.join(existing)): return
+        """Animation only: '<skin> - <animation>' folder in the export folder, holding a GLB (skeleton + motion)
+        and the .aas.json the Blender add-on imports."""
+        if self._animation is None or not self._model or self._busy or self._scanning: return
+        self.export_kind.set('animation'); self._refresh_export_controls()
+        title = self._clip_title(self._animation)
+        folder = Path(self.export_path_var.get()) / safe_name(f'{self._export_label()} - {title}')
+        path = folder / (safe_name(title) + '.aas.json')
+        if folder.exists() and not messagebox.askyesno('Replace export?', f'"{folder.name}" already exists in the export folder.\n\nReplace it?', parent=self):
+            return
         model=self._model; clip=self._animation; serial=self._selection_serial
+        self._blender_note = ''
         self._playing=False; self.play_btn.configure(text='Play'); self._set_busy(True)
         def worker():
             try:
-                Path(path).parent.mkdir(parents=True,exist_ok=True)
+                folder.mkdir(parents=True,exist_ok=True)
                 manifest_path,manifest=export_animation(model,clip,path)
                 self.events.put(('export_ready',manifest_path,manifest))
-            except Exception as exc: self.events.put(('work_error',serial,f'{type(exc).__name__}: {exc}'))
+            except Exception as exc: self.events.put(('work_error',serial,f'Export failed: {type(exc).__name__}: {exc}'))
         threading.Thread(target=worker,daemon=True).start()
 
     def _choose_export_folder(self):
@@ -611,9 +664,10 @@ class LibraryPage:
 
     def _export_model(self):
         if not self._model or not self._model.material_family_resolved or self._busy or self._scanning: return
+        if self.export_kind.get() != 'model': self.export_kind.set('model'); self._refresh_export_controls()
         model = self._model
         cosmetic = dict(self._cosmetic) if self._cosmetic else None
-        label = f'{cosmetic["owner_name"]} - {cosmetic["name"]} - {self.model_choice_var.get()}' if cosmetic else Path(model.name).stem
+        label = self._export_label()
         root = self.game_path.get(); destination = self.export_path_var.get()
         existing=Path(destination)/safe_name(label)
         overwrite=existing.exists()

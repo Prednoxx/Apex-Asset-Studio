@@ -289,14 +289,16 @@ def _control_images(app, c, f, m):
     out['field'] = gloss.field(max(40, fh * 2), fh, c['raised'], c['border'], radius=field_radius)
     out['field_focus'] = gloss.field(max(40, fh * 2), fh, c['raised'], c['border'], focus=c['accent'], radius=field_radius)
     out['field_disabled'] = gloss.field(max(40, fh * 2), fh, c['surface'], c['border'], radius=field_radius)
-    box = 16; check_radius = 5 if radius is None else min(4, max(1, radius))
+    scale = ACTIVE.get('scale', 1.0)  # checkboxes, radios and slider knobs grow with the text size
+    box = round(16 * scale); check_radius = round((5 if radius is None else min(4, max(1, radius))) * scale)
     for key, fill, edge, mark in (('check_off', c['raised'], c['muted'], None), ('check_on', c['accent'], c['accent'], c['accent_text']),
                                   ('check_off_dis', c['surface'], c['border'], None), ('check_on_dis', c['border'], c['border'], c['faint'])):
-        out[key] = _pad(gloss.check_mark(box, fill, edge, mark, radius=check_radius, shine=shine), 24, box)
+        out[key] = _pad(gloss.check_mark(box, fill, edge, mark, radius=check_radius, shine=shine), box + 8, box)
     for key, edge, dot in (('radio_off', c['muted'], None), ('radio_on', c['accent'], c['accent'])):
-        out[key] = _pad(gloss.radio_mark(box, c['raised'], edge, dot, shine=shine), 24, box)
+        out[key] = _pad(gloss.radio_mark(box, c['raised'], edge, dot, shine=shine), box + 8, box)
+    knob = round(16 * scale)
     for key, color in (('thumb', c['accent']), ('thumb_active', gloss.shade(c['accent'], .15)), ('thumb_dis', c['faint'])):
-        out[key] = gloss.pill(16, 16, color, 'normal', radius=8, dark=dark, shine=shine)
+        out[key] = gloss.pill(knob, knob, color, 'normal', radius=knob // 2, dark=dark, shine=shine)
     for key, bg in (('track', c['background']), ('track_panel', c['surface'])):
         from PIL import Image, ImageDraw
         im = Image.new('RGBA', (24, 16), (*_rgb(bg), 255))
@@ -321,8 +323,8 @@ def _elements(style, n, edge):
     if 'base' not in _ELEMENTS:
         style.element_create('AAS.check', 'image', n['check_off'],
                              ('disabled', 'selected', n['check_on_dis']), ('disabled', n['check_off_dis']),
-                             ('selected', n['check_on']), width=24, sticky='w')
-        style.element_create('AAS.radio', 'image', n['radio_off'], ('selected', n['radio_on']), width=24, sticky='w')
+                             ('selected', n['check_on']), sticky='w')
+        style.element_create('AAS.radio', 'image', n['radio_off'], ('selected', n['radio_on']), sticky='w')
         style.element_create('AAS.trough', 'image', n['track'], border=(5, 0, 5, 0), sticky='ew')
         style.element_create('AASPanel.trough', 'image', n['track_panel'], border=(5, 0, 5, 0), sticky='ew')
         style.element_create('AAS.slider', 'image', n['thumb'], ('disabled', n['thumb_dis']),
@@ -371,31 +373,36 @@ def apply(app, value):
         style.configure(f'Strong.{prefix}TLabel', font=f['strong'])
         style.configure(f'Section.{prefix}TLabel', foreground=c['muted'], font=f['small'])
         style.configure(f'Data.{prefix}TLabel', foreground=c['muted'], font=f['data'])
-        style.configure(f'{prefix}TCheckbutton', background=bg, foreground=c['text'], font=f['body'], focusthickness=0, padding=(0, 3))
+        # The label sits inside a focus element so keyboard focus shows as a ring around it.
+        focus_ring = dict(focusthickness=1, focuscolor=c['accent'])
+        style.configure(f'{prefix}TCheckbutton', background=bg, foreground=c['text'], font=f['body'], padding=(0, 3), **focus_ring)
         style.map(f'{prefix}TCheckbutton', background=[('active', bg)], foreground=[('disabled', c['faint']), ('active', c['accent'])])
         style.layout(f'{prefix}TCheckbutton', [('Checkbutton.padding', {'sticky': 'nswe', 'children': [
-            ('AAS.check', {'side': 'left', 'sticky': ''}), ('Checkbutton.label', {'side': 'left', 'sticky': 'nswe', 'expand': '1'})]})])
-        style.configure(f'{prefix}TRadiobutton', background=bg, foreground=c['text'], font=f['body'], focusthickness=0, padding=(0, 3))
+            ('AAS.check', {'side': 'left', 'sticky': ''}), ('Checkbutton.focus', {'side': 'left', 'sticky': 'w', 'children': [
+                ('Checkbutton.label', {'sticky': 'nswe'})]})]})])
+        style.configure(f'{prefix}TRadiobutton', background=bg, foreground=c['text'], font=f['body'], padding=(0, 3), **focus_ring)
         style.map(f'{prefix}TRadiobutton', background=[('active', bg)], foreground=[('active', c['accent'])])
         style.layout(f'{prefix}TRadiobutton', [('Radiobutton.padding', {'sticky': 'nswe', 'children': [
-            ('AAS.radio', {'side': 'left', 'sticky': ''}), ('Radiobutton.label', {'side': 'left', 'sticky': 'nswe', 'expand': '1'})]})])
+            ('AAS.radio', {'side': 'left', 'sticky': ''}), ('Radiobutton.focus', {'side': 'left', 'sticky': 'w', 'children': [
+                ('Radiobutton.label', {'sticky': 'nswe'})]})]})])
     style.configure('Stat.Card.TLabel', font=f['stat'], foreground=c['text'])
     style.configure('Placeholder.TLabel', background=c['raised'], foreground=c['faint'], font=f['body'])
     style.configure('Status.TLabel', foreground=c['muted'], font=f['small'])
 
     # Buttons: glossy plates (image elements); ghost buttons are text-only links
+    focused = [('Button.focus', {'sticky': 'nswe', 'children': [('Button.padding', {'sticky': 'nswe', 'children': [
+        ('Button.label', {'sticky': 'nswe'})]})]})]
     def button(element):
-        return [(element, {'sticky': 'nswe', 'children': [('Button.padding', {'sticky': 'nswe', 'children': [
-            ('Button.label', {'sticky': 'nswe'})]})]})]
+        return [(element, {'sticky': 'nswe', 'children': focused})]
     style.layout('TButton', button(f'{element}.button')); style.layout('Accent.TButton', button(f'{element}.accent'))
-    style.configure('TButton', padding=(12, 3), foreground=c['text'], background=c['background'], anchor='center',
-                    font=f['strong'], focusthickness=0, relief='flat', borderwidth=0)
+    style.configure('TButton', padding=(12, 2), foreground=c['text'], background=c['background'], anchor='center',
+                    font=f['strong'], focusthickness=1, focuscolor=c['muted'], relief='flat', borderwidth=0)
     style.map('TButton', foreground=[('disabled', c['faint'])], background=[])
-    style.configure('Accent.TButton', padding=(16, 3), foreground=c['accent_text'])
+    style.configure('Accent.TButton', padding=(16, 2), foreground=c['accent_text'], focuscolor=c['accent_text'])
     style.map('Accent.TButton', foreground=[('disabled', c['faint'])], background=[])
     for name, bg in (('Ghost.TButton', c['background']), ('Ghost.Panel.TButton', c['surface'])):
-        style.layout(name, [('Button.padding', {'sticky': 'nswe', 'children': [('Button.label', {'sticky': 'nswe'})]})])
-        style.configure(name, background=bg, foreground=c['muted'], padding=(8, 4), font=f['small'])
+        style.layout(name, focused)
+        style.configure(name, background=bg, foreground=c['muted'], padding=(8, 3), font=f['small'], focuscolor=c['accent'])
         style.map(name, background=[('active', bg)], foreground=[('disabled', c['faint']), ('active', c['text'])])
 
     # Inputs: glossy fields

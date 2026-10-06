@@ -7,13 +7,15 @@ GETTING STARTED
 1. Your Apex Legends install is detected automatically. If not, set it in
    Settings > Game.
 2. Click "Scan library". The first scan takes a while and needs free disk
-   space. You can stop it at any time; the next scan picks up where it left off.
+   space; the status bar shows about how long is left. You can stop it at any time; the next scan picks up where it left off.
 
 BROWSE
 - Pick a Legend or weapon on the left, then a skin in the list.
 - Click a column heading to sort (Name, Rarity, Model). Ctrl+F searches.
 - Filter by rarity, hide skins that can't be exported yet, or tick "Search all
   skins" to search every Legend and weapon at once.
+- The 3D preview has soft lighting, a ground shadow and see-through hair and
+  glass edges. The playing animation's name and length show in its corner.
 - Clicking another skin while one is loading cancels the first load. Only the
   most detailed LOD loads at first; other LODs load when you pick them.
 - In the preview: drag to rotate, Shift-drag or right-drag to pan, scroll to
@@ -29,7 +31,9 @@ EXPORT
   lower-detail LOD meshes. "Include animation" adds the chosen clip.
 - Exports go to the Exports folder (beside the EXE, or the master folder's
   Exports when run from source). "Open last export" opens the result.
-- "Export animation" saves just the animation (an .aas.json plus a GLB).
+- Export > "Animation only" saves just the animation in the preview (a GLB
+  with the skeleton and motion plus an .aas.json), in a "<skin> - <animation>"
+  folder next to your model exports. Ctrl+Shift+E does the same.
 - CAST uses inches; glTF and GLB use metres. All are Y-up.
 
 BLENDER

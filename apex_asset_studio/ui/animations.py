@@ -46,7 +46,7 @@ def show_animation_picker(self):
     right=ttk.Frame(body,style='Panel.TFrame',padding=(14,14,14,10));body.add(right,weight=2)
     viewport_frame=ttk.Frame(right,style='Hairline.TFrame',padding=1);viewport_frame.pack(fill='both',expand=True)
     viewport=ModelPreview(viewport_frame);viewport.pack(fill='both',expand=True)
-    viewport.set_palette(self.tokens['viewport']);viewport.set_backdrop(self._viewport_painter)
+    viewport.set_palette(self.tokens['viewport']);viewport.set_backdrop(self._viewport_painter);viewport._light=dict(self.preview._light)
     viewport.set_model(self._model,int(self.lod_var.get().split()[-1]));viewport.set_textures(self._preview_pixels)
     info=tk.StringVar(value='Select a sequence to load it.');ttk.Label(right,textvariable=info,wraplength=430,style='Panel.TLabel').pack(fill='x',pady=(10,6))
     controls=ttk.Frame(right,style='Panel.TFrame');controls.pack(fill='x',pady=4)

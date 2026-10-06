@@ -87,8 +87,15 @@ class GlossButton(_Base):
         self.text = text; self.command = command; self.base_height = height
         self._disabled = False; self._hover = False; self._pressed = False
         self.bind('<Enter>', lambda _e: self._set(hover=True)); self.bind('<Leave>', lambda _e: self._set(hover=False, pressed=False))
-        self.bind('<ButtonPress-1>', lambda _e: self._set(pressed=True))
+        self.bind('<ButtonPress-1>', lambda _e: (self.focus_set(), self._set(pressed=True)))
         self.bind('<ButtonRelease-1>', self._release)
+        self.configure(takefocus=1)
+        self.bind('<FocusIn>', lambda _e: self.t and self.redraw(self.t)); self.bind('<FocusOut>', lambda _e: self.t and self.redraw(self.t))
+        for key in ('<Return>', '<KP_Enter>', '<space>'): self.bind(key, self._key)
+
+    def _key(self, _event):
+        if not self._disabled and self.command: self.command()
+        return 'break'
 
     def _set(self, **kw):
         for k, v in kw.items(): setattr(self, '_' + k, v)
@@ -122,6 +129,8 @@ class GlossButton(_Base):
         self._img = ImageTk.PhotoImage(_plate(w, h, color, 'normal' if self._disabled else state, dark=not t['light']), master=self)
         self.create_image(0, 0, image=self._img, anchor='nw')
         self.create_text(w / 2, h / 2, text=self.text, fill=t['faint'] if self._disabled else t['accent_text'], font=f['strong'])
+        if self.focus_get() is self and not self._disabled:  # keyboard focus ring
+            self.create_rectangle(3, 3, w - 4, h - 4, outline=t['accent_text'], dash=(2, 2))
 
 
 class HeaderBar(tk.Canvas):
@@ -209,3 +218,77 @@ class HeaderBar(tk.Canvas):
         if target[0] == 'page': self.cb['on_page'](target[1])
         elif target[0] == 'scan': self.cb['on_scan']()
         else: self.cb['on_game']()
+
+
+class Flow(tk.Frame):
+    """Lays its items out left to right and wraps them onto new rows when the frame gets too narrow
+    (large text sizes, small windows), instead of clipping them."""
+    def __init__(self, master, gap=(14, 6), on='surface'):
+        super().__init__(master, borderwidth=0, highlightthickness=0)
+        self.on = on; self.gap = gap; self.items = []; self._job = None; self.t = None
+        _registry(self.winfo_toplevel()).append(self)
+        self.bind('<Configure>', lambda _e: self._schedule())
+
+    def add(self, widget, gap=None):
+        self.items.append((widget, gap)); self._schedule()
+        widget.bind('<Configure>', lambda _e: self._schedule(), add='+')
+        return widget
+
+    def redraw(self, t):
+        self.t = t; self.configure(background=t[self.on]); self._schedule()
+
+    def _schedule(self):
+        if self._job is None: self._job = self.after_idle(self._layout)
+
+    def _layout(self):
+        self._job = None
+        width = self.winfo_width() if self.winfo_width() > 1 else 10_000
+        x = y = row_h = 0
+        for widget, gap in self.items:
+            if not widget.winfo_ismapped() and getattr(widget, '_flow_hidden', False): continue
+            g = self.gap[0] if gap is None else gap
+            w, h = widget.winfo_reqwidth(), widget.winfo_reqheight()
+            if x and x + g + w > width:
+                x = 0; y += row_h + self.gap[1]; row_h = 0
+            if x: x += g
+            widget.place(in_=self, x=x, y=y)
+            x += w; row_h = max(row_h, h)
+        height = y + row_h
+        if int(self.cget('height')) != height: self.configure(height=max(1, height))
+
+
+class Tooltip:
+    """Small hint shown after hovering a control for half a second."""
+    def __init__(self, widget, text):
+        self.widget = widget; self.text = text; self.job = None; self.tip = None
+        widget.bind('<Enter>', self._enter, add='+'); widget.bind('<Leave>', self._hide, add='+')
+        widget.bind('<ButtonPress>', self._hide, add='+'); widget.bind('<FocusOut>', self._hide, add='+')
+
+    def _enter(self, _e=None):
+        self._cancel(); self.job = self.widget.after(500, self._show)
+
+    def _cancel(self):
+        if self.job: self.widget.after_cancel(self.job); self.job = None
+
+    def _show(self):
+        self.job = None
+        if self.tip or not self.widget.winfo_ismapped(): return
+        t = getattr(self.widget.winfo_toplevel(), 'tokens', None) or {'raised': '#ffffe0', 'text': '#000000', 'border': '#888888'}
+        f = appearance.fonts(self.widget)
+        self.tip = tk.Toplevel(self.widget); self.tip.overrideredirect(True)
+        self.tip.configure(background=t['border'])
+        tk.Label(self.tip, text=self.text, justify='left', wraplength=340, background=t['raised'], foreground=t['text'],
+                 font=f['small'], padx=10, pady=6, borderwidth=0).pack(padx=1, pady=1)
+        x = self.widget.winfo_rootx() + 8; y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+        self.tip.update_idletasks()
+        x = min(x, self.widget.winfo_screenwidth() - self.tip.winfo_width() - 8)
+        if y + self.tip.winfo_height() > self.widget.winfo_screenheight(): y = self.widget.winfo_rooty() - self.tip.winfo_height() - 6
+        self.tip.geometry(f'+{x}+{y}')
+
+    def _hide(self, _e=None):
+        self._cancel()
+        if self.tip: self.tip.destroy(); self.tip = None
+
+
+def tip(widget, text):
+    Tooltip(widget, text); return widget
