@@ -1,9 +1,33 @@
 # Apex Asset Studio
 
-A Windows model browser and exporter for Apex Legends. Exports GLB, glTF and CAST with skeletons, weights, UVs, normals, tangents, LODs and material assignments. Texture output includes DDS, PNG and original game payloads.
+A Windows app for browsing and exporting Apex Legends character and weapon skins: models, skeletons, materials, textures and animations.
 
-Extract the portable ZIP and run ApexAssetStudio.exe. See README.txt for scanning, export and Blender import instructions. The Blender addon supports Blender 5.2.2.
+- **Browse** every skin by Legend or weapon, preview it in 3D with textures, and play its animations.
+- **Export** to GLB, glTF and/or CAST, with all detail levels (LODs), textures (DDS, PNG and the original game data) and an `.aas.json` manifest.
+- **Import into Blender 5.2** with the bundled add-on, which rebuilds the materials.
 
-The desktop preview is untextured. Animation playback/export, full shader reproduction and blend shapes are not supported. Unsupported formats produce an error; missing material sets disable export.
+No game files are included. The app reads your own Apex Legends install.
 
-For development, run RUN_TEST.bat. Run build_windows.bat to build the portable application. RPak and StarPak handling is in apex_asset_studio/rpak. Dependencies and artwork credits are listed in THIRD_PARTY_NOTICES.md.
+## Run
+
+- **Portable build:** extract the ZIP and run `ApexAssetStudio.exe`. Keep the `_internal` folder beside it.
+- **From source:** run `Run Apex Asset Studio.bat` in the master folder (or `RUN_TEST.bat` here). The first run sets up Python.
+
+See `README.txt` for the step-by-step guide.
+
+## Develop
+
+| Task | How |
+| --- | --- |
+| Run tests | `RUN_TESTS.bat` |
+| Build the portable app (and installer, if Inno Setup is installed) | `build_windows.bat` (runs the tests first) |
+| Package release ZIPs | `python package_release.py --destination <folder>` |
+| Version number | `apex_asset_studio/__init__.py` (the only place it is set) |
+
+Code layout: `rpak/` reads game packages, `export/` writes GLB/glTF/CAST, `ui/` is the desktop app, `blender_addon/` is the Blender importer.
+
+## Known limits
+
+Some animation encodings (datapoint compression, IK, procedural motion) and blend shapes are not supported. A few skins whose material sets can't be read yet can be previewed but not exported. Blender materials approximate the game's shaders.
+
+License: AGPL-3.0-or-later. Third-party credits: `THIRD_PARTY_NOTICES.md`; bundled font licenses: `apex_asset_studio/resources/fonts/FONT_LICENSES.txt`.

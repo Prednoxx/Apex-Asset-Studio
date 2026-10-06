@@ -1,43 +1,50 @@
-Apex Asset Studio 0.3.1
+APEX ASSET STUDIO
+=================
 
-Extract the ZIP and run ApexAssetStudio.exe. Keep _internal beside it.
+Extract the ZIP and run ApexAssetStudio.exe. Keep the _internal folder beside it.
 
-1. Select the Apex installation if it isn't detected, then click Scan Library.
-2. Choose a model or skin. Drag to rotate; scroll to zoom. LOD 0 is the default.
-   Middle/right drag or Shift+left drag pans in both directions. Reset view
-   restores the camera.
-3. Open Animations and select a sequence. It plays in that window. Use animation
-   confirms the choice; Cancel keeps the previous choice. Blend selects a decoded
-   variation. Play or scrub the confirmed animation in the main viewport.
-4. Export model saves GLB, glTF, CAST, textures and an .aas.json manifest.
-   Exports is beside the EXE. Existing asset folders require confirmation before
-   replacement. Animation includes the selected clip; All LODs includes every
-   decoded detail level. Export animation saves an .aas.json file and its GLB beside it.
-   Import either a model or an animation through the same AAS addon. Select the
-   model or armature before importing a separate animation. Previous actions are
-   retained; no second addon is needed.
-5. Install ApexAssetStudio_Blender_5.2.zip in Blender 5.2.2. Open the .aas.json
-   through File > Import > Apex Asset Studio or the AAS sidebar. Materials build
-   on import. Build / Rebuild Materials and Retry Materials update them in place.
+GETTING STARTED
+1. Your Apex Legends install is detected automatically. If not, set it in
+   Settings > Game.
+2. Click "Scan library". The first scan takes a while and needs free disk
+   space. You can stop it at any time; the next scan picks up where it left off.
 
-Appearance contains color and layout settings. Advanced View contains internal
-names, GUIDs, package versions and dependencies. Diagnostics contains errors.
+BROWSE
+- Pick a Legend or weapon on the left, then a skin in the list.
+- Click a column heading to sort (Name, Rarity, Model). Ctrl+F searches.
+- In the preview: drag to rotate, Shift-drag or right-drag to pan, scroll to
+  zoom, R to reset the view.
 
-DDS, original-channel PNGs, texture headers and compressed payloads are retained.
-Converted normals are separate files. Material constant buffers, reflected
-values, render states and shader bytecode are retained. Unsupported bindings stay in metadata.
-Skin maps use physical subsurface scattering. Hair direction maps drive
-anisotropic reflections. These are Blender rendering approximations.
-CAST uses inches/Y-up; glTF and GLB use metres/Y-up.
+ANIMATIONS
+- "Browse animations" lists the clips that belong to the model. Pick one to
+  play it, then "Use animation". "Variation" switches between versions of the
+  same clip. Space plays and pauses.
 
-Supported animation tracks: aseq 13/14 RLE with rig 7. Datapoint compression,
-unknown bone flags, IK, autolayers and procedural motion aren't reconstructed.
-Missing material sets disable model export. Blend shapes, additional shader
-effects and some format versions aren't supported. Shader appearance hasn't
-been compared pixel-for-pixel against the game.
+EXPORT
+- Choose formats: GLB, glTF and/or CAST. "All detail levels" also exports the
+  lower-detail LOD meshes. "Include animation" adds the chosen clip.
+- Exports go to the Exports folder (beside the EXE, or the master folder's
+  Exports when run from source). "Open last export" opens the result.
+- "Export animation" saves just the animation (an .aas.json plus a GLB).
+- CAST uses inches; glTF and GLB use metres. All are Y-up.
 
-First scans require time and space for decompressed packages. Preview textures use native mip levels and a 96 MiB session cache.
-The decoded cache
-targets 12 GiB, excluding packages in use.
+BLENDER
+- Install ApexAssetStudio_Blender_5.2.zip in Blender 5.2, then use
+  File > Import > Apex Asset Studio (or the AAS sidebar) and pick the
+  .aas.json file. Materials are built on import. To add an animation to a model
+  you already imported, select its armature first. Blender import needs GLB or
+  glTF in the export.
+
+SETTINGS
+- Theme, text size, high contrast, reduced effects, keyboard shortcuts and the
+  mascot image are all in Settings.
+
+LIMITS
+- Not supported yet: some animation encodings (datapoint compression, IK,
+  procedural motion), blend shapes, and a few skins whose materials can't be
+  read (these can be previewed but not exported). Blender materials approximate
+  the game's look.
+- Decoded game packages are cached in %LOCALAPPDATA%\ApexAssetStudio\decoded_cache
+  (up to about 12 GB). Deleting that folder is safe; it is rebuilt when needed.
 
 License: AGPL-3.0-or-later. See THIRD_PARTY_NOTICES.md.

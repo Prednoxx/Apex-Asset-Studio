@@ -1,5 +1,7 @@
 #define MyAppName "Apex Asset Studio"
-#define MyAppVersion "0.3.1"
+#ifndef MyAppVersion
+  #define MyAppVersion "0.0.0"  ; build_windows.bat passes the real version
+#endif
 #define MyAppPublisher "Apex Asset Studio"
 #define MyAppExeName "ApexAssetStudio.exe"
 

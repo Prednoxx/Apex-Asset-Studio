@@ -232,7 +232,7 @@ class StartupSplash(tk.Toplevel):
         self.stage('Ready')
         if self._lines and not self.aero: self.canvas.itemconfigure(self._lines[-1][1], text='♪' if self.promo else 'GO', fill=self.t['accent'])
         self.update()
-        delay = max(0, int((1.4-(time.monotonic()-self.started))*1000))
+        delay = max(0, int((0.35-(time.monotonic()-self.started))*1000))  # just long enough to read 'Ready'
         def reveal():
             if self._closed: return
             self._closed = True; self.destroy(); app.deiconify(); app.lift()

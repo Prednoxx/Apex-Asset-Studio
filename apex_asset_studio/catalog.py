@@ -7,7 +7,7 @@ import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable
 
 from .game_locator import find_pak_root
 from .rpak.archive import RpakArchive
@@ -91,6 +91,14 @@ SIMPLE_TYPE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Textures", ("txtr",)),
     ("UI Images", ("uiia",)),
 )
+
+
+def _purge_container(db, cid):
+    """Remove every indexed row that belongs to one container (the container row itself is kept)."""
+    db.execute("DELETE FROM asset_details WHERE asset_id IN (SELECT id FROM assets WHERE container_id=?)", (cid,))
+    db.execute("DELETE FROM asset_dependencies WHERE asset_id IN (SELECT id FROM assets WHERE container_id=?)", (cid,))
+    db.execute("DELETE FROM assets WHERE container_id=?", (cid,))
+    db.execute("DELETE FROM strings WHERE container_id=?", (cid,))
 
 
 @dataclass(slots=True)
@@ -237,10 +245,7 @@ class Catalog:
                     row = db.execute("SELECT id FROM containers WHERE path=?", (str(path),)).fetchone()
                     cid = row[0]
                     db.execute('UPDATE containers SET payload_version=? WHERE id=?',(PAYLOAD_VERSION if index.error is None else 0,cid))
-                    db.execute("DELETE FROM asset_details WHERE asset_id IN (SELECT id FROM assets WHERE container_id=?)", (cid,))
-                    db.execute("DELETE FROM asset_dependencies WHERE asset_id IN (SELECT id FROM assets WHERE container_id=?)", (cid,))
-                    db.execute("DELETE FROM assets WHERE container_id=?", (cid,))
-                    db.execute("DELETE FROM strings WHERE container_id=?", (cid,))
+                    _purge_container(db, cid)
 
                     if index.error is None:
                         for a, detail in zip(index.assets, decoded):
@@ -289,10 +294,7 @@ class Catalog:
                     old = db.execute("SELECT id FROM containers WHERE path=?", (str(path),)).fetchone()
                     if old:
                         cid = old[0]
-                        db.execute("DELETE FROM asset_details WHERE asset_id IN (SELECT id FROM assets WHERE container_id=?)", (cid,))
-                        db.execute("DELETE FROM asset_dependencies WHERE asset_id IN (SELECT id FROM assets WHERE container_id=?)", (cid,))
-                        db.execute("DELETE FROM assets WHERE container_id=?", (cid,))
-                        db.execute("DELETE FROM strings WHERE container_id=?", (cid,))
+                        _purge_container(db, cid)
                     db.execute(
                         """INSERT INTO containers(path,filename,status,error,mtime)
                            VALUES(?,?,?,?,?)
@@ -309,10 +311,7 @@ class Catalog:
                 for old in db.execute("SELECT id,path FROM containers").fetchall():
                     if old['path'] not in present:
                         cid = old['id']
-                        db.execute("DELETE FROM asset_details WHERE asset_id IN (SELECT id FROM assets WHERE container_id=?)", (cid,))
-                        db.execute("DELETE FROM asset_dependencies WHERE asset_id IN (SELECT id FROM assets WHERE container_id=?)", (cid,))
-                        db.execute("DELETE FROM assets WHERE container_id=?", (cid,))
-                        db.execute("DELETE FROM strings WHERE container_id=?", (cid,))
+                        _purge_container(db, cid)
                         db.execute("DELETE FROM containers WHERE id=?", (cid,))
                 if progress:
                     progress("Resolving cosmetic names and on-demand model packages…", total, total)
@@ -387,19 +386,6 @@ class Catalog:
         args.append(limit)
         with self.connect() as db:
             return db.execute(sql, args).fetchall()
-
-    def assets_for_types(self, types: Iterable[str], limit: int = 2000):
-        types = tuple(types)
-        if not types:
-            return []
-        placeholders = ",".join("?" for _ in types)
-        sql = f"""SELECT a.id,a.container_id,a.guid,a.type,a.version,a.header_size,a.starpak_offset,a.starpak_index,
-                         a.opt_starpak_offset,a.ordinal,c.filename,c.path,c.patch_count,c.compression,c.status,
-                         d.name,d.status decode_status,d.error decode_error
-                  FROM assets a JOIN containers c ON c.id=a.container_id LEFT JOIN asset_details d ON d.asset_id=a.id
-                  WHERE a.type IN ({placeholders}) ORDER BY c.filename,a.ordinal LIMIT ?"""
-        with self.connect() as db:
-            return db.execute(sql, [*types, limit]).fetchall()
 
     def get_asset(self, asset_id: int):
         with self.connect() as db:

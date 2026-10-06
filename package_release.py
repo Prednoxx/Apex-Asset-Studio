@@ -6,6 +6,8 @@ import shutil
 from pathlib import Path
 from zipfile import ZipFile, ZIP_DEFLATED
 
+from apex_asset_studio import __version__ as VERSION
+
 
 def archive_tree(source,output,prefix):
     with ZipFile(output,'w',ZIP_DEFLATED,compresslevel=6) as archive:
@@ -33,7 +35,7 @@ def main():
                 source=Path(distribution.locate_file(item))
                 if source.is_file():
                     directory=licenses/name;directory.mkdir(exist_ok=True);shutil.copy2(source,directory/source.name)
-    sourcezip=out/'ApexAssetStudio-0.3.1-source.zip'
+    sourcezip=out/f'ApexAssetStudio-{VERSION}-source.zip'
     with ZipFile(sourcezip,'w',ZIP_DEFLATED,compresslevel=6) as archive:
         files=[p for p in root.iterdir() if p.is_file() and p.suffix in ('.py','.bat','.md','.toml','.txt','.spec')]
         files.append(root/'LICENSE')
@@ -42,9 +44,7 @@ def main():
         for path in sorted(set(files)): archive.write(path,Path('ApexAssetStudio-source')/path.relative_to(root))
     with ZipFile(sourcezip) as archive:
         if archive.testzip(): raise RuntimeError('Source ZIP integrity failure')
-    portable=out/'ApexAssetStudio-0.3.1-portable.zip';archive_tree(app,portable,'ApexAssetStudio')
-    # Also provide a directly runnable extracted copy for this local workstation.
-    shutil.copytree(app,out/'ApexAssetStudio',dirs_exist_ok=True)
+    portable=out/f'ApexAssetStudio-{VERSION}-portable.zip';archive_tree(app,portable,'ApexAssetStudio')
     paths=[portable,sourcezip,out/addon.name]
     (out/'SHA256SUMS.txt').write_text('\n'.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name for p in paths)+'\n')
     for path in paths: print(path,path.stat().st_size)

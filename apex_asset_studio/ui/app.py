@@ -28,7 +28,26 @@ from .splash import StartupSplash
 from . import cyber
 
 APP_NAME = "Apex Asset Studio"
-APP_VERSION = "0.3.1"
+from .. import __version__ as APP_VERSION
+FRIENDLY_ERRORS = (
+    ('is not supported', "This uses a game format the app can't read yet."),
+    ('unsupported', "This uses a game format the app can't read yet."),
+    ('ambiguous across', 'This item exists in more than one game package, so the right one is unclear.'),
+    ('no resolvable base RPak', "This item's game package wasn't found. Try scanning the library again."),
+    ('Material set unavailable', "This skin's materials can't be read yet, so it can't be exported."),
+    ('Permission', "Windows blocked access to a file. Close anything using the export folder and try again."),
+    ('No space', 'The drive is full.'),
+    ('FileExistsError', 'An export with this name already exists.'),
+)
+
+
+def friendly_error(text):
+    """Plain-language summary for the status bar; the technical text still goes to Diagnostics > Scan log."""
+    for needle, message in FRIENDLY_ERRORS:
+        if needle.lower() in text.lower(): return message
+    return 'Something went wrong. Details are in Diagnostics > Scan log.'
+
+
 SHORTCUTS = (('Ctrl+F', 'Search the library'), ('Ctrl+1 … 4', 'Switch page'), ('Space', 'Play / pause animation'),
              ('R', 'Reset 3D view'), ('Ctrl+E', 'Export model'), ('Ctrl+Shift+E', 'Export animation'),
              ('F5', 'Scan library'), ('Ctrl + / − / 0', 'Text size bigger / smaller / normal'))
@@ -71,8 +90,9 @@ class ApexAssetStudioApp(tk.Tk):
         self.simple_search_var = tk.StringVar()
         self.model_choice_var = tk.StringVar()
         self.lod_var = tk.StringVar()
-        app_folder = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[2]
-        self.export_path_var = tk.StringVar(value=str(app_folder/'Exports'))
+        self.session_path = self.appearance_path.with_name('session.json')
+        self.session = self._load_session()
+        self.export_path_var = tk.StringVar(value=self.session.get('export_path') or str(self._default_export_folder()))
         self.all_lods_var = tk.BooleanVar(value=True)
         self._busy = False
         self._model = None
@@ -102,11 +122,14 @@ class ApexAssetStudioApp(tk.Tk):
         self._apply_appearance(save=False)
         self._update_animation_display()
         self.after(100, self._poll_events)
+        self.protocol('WM_DELETE_WINDOW', self._close)
         self._bind_shortcuts()
         if splash: splash.stage('Detecting Apex…')
         self._auto_detect()
         if splash: splash.stage('Loading library…')
         self.refresh_all_views()
+        for tree in (self.simple_assets, self.asset_table, self.string_table): self._make_sortable(tree)
+        self._restore_session()
         if splash: splash.finish(self)
         else: self.deiconify()
 
@@ -244,6 +267,8 @@ class ApexAssetStudioApp(tk.Tk):
         return cyber.SectionTag(parent, text, self.SECTION_JP.get(text, ''), on='surface' if 'Panel' in style else 'background', width=80)
 
     def _tick_clock(self):
+        if not self.status_clock.winfo_ismapped():
+            self.after(1000, self._tick_clock); return
         self.clock_var.set(time.strftime('%H:%M:%S') + '  //  ONLINE')
         self.after(1000, self._tick_clock)
 
@@ -463,7 +488,11 @@ class ApexAssetStudioApp(tk.Tk):
         export_top = ttk.Frame(export, style='Panel.TFrame')
         export_top.pack(fill='x')
         self._section(export_top, 'Export').pack(side='left', fill='x', expand=True, padx=(0, 8))
-        self.open_source_btn = ttk.Button(export_top, text='Open RPak folder', style='Ghost.Panel.TButton',
+        self.open_export_btn = ttk.Button(export_top, text='Open last export', style='Ghost.Panel.TButton',
+                                          command=self._open_last_export)
+        self.open_export_btn.pack(side='right')
+        self.open_export_btn.state(['disabled'])
+        self.open_source_btn = ttk.Button(export_top, text='Show source file', style='Ghost.Panel.TButton',
                                           command=lambda: self._open_selected_container('simple'))
         self.open_source_btn.pack(side='right')
         self.open_source_btn.state(['disabled'])
@@ -475,7 +504,15 @@ class ApexAssetStudioApp(tk.Tk):
         self.export_folder_btn.pack(side='left', padx=(6, 0))
         bar = ttk.Frame(export, style='Panel.TFrame')
         bar.pack(fill='x')
-        self.all_lods_check = ttk.Checkbutton(bar, text='All LODs', variable=self.all_lods_var, style='Panel.TCheckbutton')
+        formats = ttk.Frame(export, style='Panel.TFrame'); formats.pack(fill='x', pady=(0, 6))
+        ttk.Label(formats, text='Formats', style='Muted.Panel.TLabel').pack(side='left', padx=(0, 10))
+        self.format_vars = {}
+        for ext, label in (('.glb', 'GLB'), ('.gltf', 'glTF'), ('.cast', 'CAST')):
+            var = tk.BooleanVar(value=ext in self.session.get('formats', ['.glb', '.cast']))
+            var.trace_add('write', lambda *_: self._remember_formats())
+            self.format_vars[ext] = var
+            ttk.Checkbutton(formats, text=label, variable=var, style='Panel.TCheckbutton').pack(side='left', padx=(0, 14))
+        self.all_lods_check = ttk.Checkbutton(bar, text='All detail levels', variable=self.all_lods_var, style='Panel.TCheckbutton')
         self.all_lods_check.pack(side='left')
         self.include_animation_check = ttk.Checkbutton(bar, text='Include animation', variable=self.include_animation,
                                                        state='disabled', style='Panel.TCheckbutton')
@@ -871,7 +908,7 @@ class ApexAssetStudioApp(tk.Tk):
         detail_header = ttk.Frame(detail_frame, style='Panel.TFrame')
         detail_header.pack(fill='x')
         self._section(detail_header, 'Selected asset').pack(side='left', fill='x', expand=True, padx=(0, 8))
-        self.advanced_open_btn = ttk.Button(detail_header, text='Open RPak folder', style='Ghost.Panel.TButton',
+        self.advanced_open_btn = ttk.Button(detail_header, text='Show source file', style='Ghost.Panel.TButton',
                                             command=lambda: self._open_selected_container('advanced'))
         self.advanced_open_btn.pack(side='right')
         self.advanced_open_btn.state(['disabled'])
@@ -1074,8 +1111,8 @@ class ApexAssetStudioApp(tk.Tk):
                     owner = f'{self._cosmetic["owner_name"]}  ·  {self.model_choice_var.get()}  ·  ' if self._cosmetic else ''
                     self._set_inspector(title, f'{owner}{total:,} vtx  ·  {len(model.bones)} bones  ·  {len(model.lods)} lod')
                     self._set_simple_info('\n'.join(warnings+model.warnings) + ('' if model.material_family_resolved else
-                        '\nThis skin\'s material set is not decoded yet, so export is disabled.'))
-                    self.status_var.set('Model loaded.' if model.material_family_resolved else 'Model loaded. Material set unavailable.')
+                        "\nThis skin's materials can't be read yet, so it can't be exported. You can still preview it."))
+                    self.status_var.set('Model loaded.' if model.material_family_resolved else "Model loaded. This skin can't be exported yet.")
                     if model.material_family_resolved: self._load_preview_textures(model,serial)
                 elif event[0]=='preview_textures':
                     _,serial,textures,errors=event
@@ -1095,8 +1132,8 @@ class ApexAssetStudioApp(tk.Tk):
                     if serial != self._selection_serial: continue
                     if self._model: self._render_model()
                     else: self.preview.clear('Preview unavailable')
-                    self._set_simple_info(error)
-                    self.status_var.set(error)
+                    self._set_simple_info(friendly_error(error))
+                    self.status_var.set(friendly_error(error))
                     self._log(error)
                 elif event[0] == 'work_progress':
                     self.status_var.set(event[1])
@@ -1108,7 +1145,7 @@ class ApexAssetStudioApp(tk.Tk):
                         self._animation_picker['ready'](result,event[0]=='animation_error')
                         continue
                     if event[0]=='animation_error':
-                        self.status_var.set(result); self._log(result)
+                        self.status_var.set(friendly_error(result)); self._log(result)
                     else:
                         self._apply_animation(result)
                         data=f'{result["mapped_bones"]} bones'
@@ -1120,7 +1157,10 @@ class ApexAssetStudioApp(tk.Tk):
                     self._set_busy(False)
                     _,path,manifest = event
                     self.export_btn.state(['!disabled'] if self._model and self._model.material_family_resolved else ['disabled'])
-                    self.status_var.set(f'Export saved ({manifest["status"]}): {path.parent}')
+                    self._last_export = path.parent
+                    partial = '' if manifest['status'] == 'decoded' else ' Some materials were incomplete; see the manifest.'
+                    self.status_var.set(f'Exported to {path.parent.name}.{partial}{getattr(self, "_blender_note", "")}')
+                    self.open_export_btn.state(['!disabled'])
                     self._log(f'Export manifest: {path}')
         except queue.Empty:
             pass
@@ -1142,7 +1182,7 @@ class ApexAssetStudioApp(tk.Tk):
             self.simple_header_var.set('Library')
             self.preview.clear('No library yet\n\nPress “Scan library” to index your Apex install.')
             self._set_inspector('Nothing selected'); self._set_simple_info('')
-            self.status_var.set('Scan required')
+            self.status_var.set('Press Scan library to build your library. The first scan takes a while; you can stop and resume it.')
             return
         owners = self.catalog.cosmetic_owners()
         categories = {}
@@ -1199,7 +1239,7 @@ class ApexAssetStudioApp(tk.Tk):
                 models = json.loads(r['details']).get('models', [])
                 found = any(m.get('pak_name') for m in models)
                 self.simple_assets.insert('', 'end', iid=f'cosmetic:{r["id"]}', tags=(str(r['quality']).lower(),) if found else ('muted',),
-                                          values=(r['name'], r['quality'], 'Ready' if found else 'Unresolved'))
+                                          values=(r['name'], r['quality'], 'Ready' if found else 'Not available'))
             else:
                 self.simple_assets.insert('', 'end', iid=f'simple:{r["id"]}',
                                           values=(r['name'] or f'Unnamed {r["guid"]}', r['type'], r['decode_status']))
@@ -1608,7 +1648,7 @@ class ApexAssetStudioApp(tk.Tk):
         info=tk.StringVar(value='Select a sequence to load it.');ttk.Label(right,textvariable=info,wraplength=430,style='Panel.TLabel').pack(fill='x',pady=(10,6))
         controls=ttk.Frame(right,style='Panel.TFrame');controls.pack(fill='x',pady=4)
         blend=tk.IntVar(value=0)
-        ttk.Label(controls,text='Blend',style='Muted.Panel.TLabel').pack(side='left')
+        ttk.Label(controls,text='Variation',style='Muted.Panel.TLabel').pack(side='left')
         self._blend_choice=ttk.Spinbox(controls,from_=0,to=0,textvariable=blend,width=5)
         self._blend_choice.pack(side='left',padx=4)
         play=ttk.Button(controls,text='Play',state='disabled');play.pack(side='left',padx=4)
@@ -1775,8 +1815,8 @@ class ApexAssetStudioApp(tk.Tk):
 
     def _choose_export_folder(self):
         if self._busy: return
-        path = filedialog.askdirectory(title='Choose export root',initialdir=self.export_path_var.get())
-        if path: self.export_path_var.set(path)
+        path = filedialog.askdirectory(title='Choose export folder',initialdir=self.export_path_var.get())
+        if path: self.export_path_var.set(path); self._save_session()
 
     def _export_model(self):
         if not self._model or not self._model.material_family_resolved or self._busy or self._scanning: return
@@ -1786,19 +1826,93 @@ class ApexAssetStudioApp(tk.Tk):
         root = self.game_path.get(); destination = self.export_path_var.get()
         existing=Path(destination)/safe_name(label)
         overwrite=existing.exists()
-        if overwrite and not messagebox.askyesno('Replace export?',str(existing)): return
+        if overwrite and not messagebox.askyesno('Replace export?', f'"{existing.name}" already exists in the export folder.\n\nReplace it?', parent=self): return
         all_lods = self.all_lods_var.get(); serial = self._selection_serial
         animation=self._animation if self.include_animation.get() else None
+        formats = [ext for ext, var in self.format_vars.items() if var.get()]
+        if not formats:
+            self.status_var.set('Pick at least one export format.'); return
+        self._blender_note = '' if {'.glb', '.gltf'} & set(formats) else ' (CAST only: the Blender add-on needs GLB or glTF.)'
         self._playing=False; self.play_btn.configure(text='Play')
         self._set_busy(True)
         def worker():
             try:
                 path,manifest = export_package(model,self.catalog,root,destination,label,cosmetic,all_lods,
-                    lambda text:self.events.put(('work_progress',text)),overwrite=overwrite,animation=animation)
+                    lambda text:self.events.put(('work_progress',text)),overwrite=overwrite,animation=animation,formats=formats)
                 self.events.put(('export_ready',path,manifest))
             except Exception as exc:
                 self.events.put(('work_error',serial,f'Export failed: {type(exc).__name__}: {exc}'))
         threading.Thread(target=worker,daemon=True).start()
+
+    RARITY_ORDER = {'common': 0, 'rare': 1, 'epic': 2, 'legendary': 3, 'mythic': 4, 'iconic': 4, 'heirloom': 5}
+
+    def _make_sortable(self, tree):
+        """Click a column heading to sort by it; click again to reverse. Numbers and rarities sort naturally."""
+        def key_for(column, value):
+            text = str(value)
+            if column == 'quality' and text.lower() in self.RARITY_ORDER: return (0, self.RARITY_ORDER[text.lower()], '')
+            try: return (0, float(text.replace(',', '')), '')
+            except ValueError: return (1, 0, text.casefold())
+        def sort(column):
+            reverse = tree._sort == (column, False)
+            rows = [(key_for(column, tree.set(iid, column)), iid) for iid in tree.get_children('')]
+            for index, (_k, iid) in enumerate(sorted(rows, reverse=reverse)): tree.move(iid, '', index)
+            tree._sort = (column, reverse)
+            for col in tree['columns']:
+                title = tree._titles[col]
+                tree.heading(col, text=title + ((' ▼' if reverse else ' ▲') if col == column else ''))
+        tree._sort = None
+        tree._titles = {col: tree.heading(col, 'text') for col in tree['columns']}
+        for col in tree['columns']: tree.heading(col, command=lambda c=col: sort(c))
+
+    @staticmethod
+    def _default_export_folder():
+        if getattr(sys, 'frozen', False): return Path(sys.executable).parent / 'Exports'
+        source = Path(__file__).resolve().parents[2]
+        master = source.parent / 'Exports'  # "Apex Studio Master\Exports" when running from the master folder
+        return master if master.is_dir() else source / 'Exports'
+
+    def _load_session(self):
+        try:
+            value = json.loads(self.session_path.read_text(encoding='utf-8'))
+            return value if isinstance(value, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _save_session(self):
+        tab = next((n for n, (_i, label) in self.nav_labels.items() if n == self.tabs.select()), None) if hasattr(self, 'nav_labels') else None
+        state = dict(self.session, geometry=self.geometry() if self.state() == 'normal' else self.session.get('geometry'),
+                     zoomed=self.state() == 'zoomed', export_path=self.export_path_var.get(),
+                     page=self.nav_labels[tab][1] if tab else 'Library',
+                     formats=[ext for ext, var in getattr(self, 'format_vars', {}).items() if var.get()] or self.session.get('formats'))
+        try:
+            temp = self.session_path.with_suffix('.tmp'); temp.write_text(json.dumps(state, indent=2), encoding='utf-8'); temp.replace(self.session_path)
+            self.session = state
+        except OSError:
+            pass
+
+    def _restore_session(self):
+        geometry = self.session.get('geometry')
+        if isinstance(geometry, str) and 'x' in geometry: self.geometry(geometry)
+        if self.session.get('zoomed'):
+            try: self.state('zoomed')
+            except tk.TclError: pass
+        page = self.session.get('page')
+        for key, (_n, label) in self.nav_labels.items():
+            if label == page and page != 'Settings': self.tabs.select(key)
+
+    def _remember_formats(self):
+        self.session['formats'] = [ext for ext, var in self.format_vars.items() if var.get()]
+
+    def _close(self):
+        self._save_session()
+        self.destroy()
+
+    def _open_last_export(self):
+        folder = getattr(self, '_last_export', None)
+        if folder and Path(folder).exists():
+            if os.name == 'nt': os.startfile(folder)
+            else: subprocess.Popen(['xdg-open', str(folder)])
 
     def _log(self, text):
         self.log_text.insert("end", str(text) + "\n")
