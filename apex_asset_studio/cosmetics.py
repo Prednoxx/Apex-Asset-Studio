@@ -96,3 +96,25 @@ def rebuild_cosmetics(db):
                     values.get("quality", ""),json.dumps(evidence, ensure_ascii=False)))
                 count += 1
     return count
+
+
+LOBBY_LIGHTS = ('Key', 'Fill', 'RimL', 'RimR')
+
+
+def lobby_lighting(skin_values, owner_values):
+    """The four lobby / character-select lights the game uses to present a skin: the skin's own set when it has
+    one (hasCustomCharSelectLighting), otherwise the Legend's default. Positions aren't stored in the settings,
+    only color, brightness, range and cone, so importers place them in the usual key / fill / rim layout."""
+    custom = bool(skin_values.get('hasCustomCharSelectLighting'))
+    source, prefix = (skin_values, 'menuCustomLight') if custom else (owner_values or {}, 'menuLight')
+    lights = {}
+    for name in LOBBY_LIGHTS:
+        color = source.get(f'{prefix}Color{name}')
+        if not isinstance(color, list) or len(color) != 3: continue
+        lights[name] = {'color': [float(c) for c in color], 'brightness': float(source.get(f'{prefix}Brightness{name}', 1.0) or 0),
+                        'specular': float(source.get(f'{prefix}SpecInt{name}', 1.0) or 0),
+                        'range_inches': float(source.get(f'{prefix}Distance{name}', 0) or 0),
+                        'cone_degrees': float(source.get(f'{prefix}Cone{name}', 0) or 0),
+                        'inner_cone_degrees': float(source.get(f'{prefix}InnerCone{name}', 0) or 0),
+                        'shadows': bool(source.get(f'{prefix}CastShadows{name}', True))}
+    return {'custom': custom, 'lights': lights} if lights else None

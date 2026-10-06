@@ -110,10 +110,11 @@ class LibraryPage:
         """Export button label and which options apply, for 'Model' or 'Animation only'."""
         if not hasattr(self, 'export_btn'): return
         animation_only = self.export_kind.get() == 'animation'
-        self.export_btn.text = 'Export animation' if animation_only else 'Export model'
+        batch = 0 if animation_only else self._batch_size()
+        self.export_btn.text = 'Export animation' if animation_only else f'Export {batch:,} skins' if batch else 'Export model'
         idle = not self._busy and not self._scanning and not getattr(self, '_loading', False)
         model_ready = bool(self._model and self._model.material_family_resolved)
-        enabled = idle and self._model is not None and (self._animation is not None if animation_only else model_ready)
+        enabled = idle and (bool(batch) or self._model is not None and (self._animation is not None if animation_only else model_ready))
         self.export_btn.state(['!disabled'] if enabled else ['disabled'])
         for widget in self._model_export_options:
             widget.state(['disabled'] if animation_only or not idle else ['!disabled'])
@@ -169,19 +170,27 @@ class LibraryPage:
         filters.add(widgets.tip(ttk.Checkbutton(filters, text='Search all skins', variable=self.search_all_var,
                     style='Panel.TCheckbutton', command=self._search_simple),
                     'Search every Legend and weapon at once instead of only the one picked on the left.'))
+        self.thumbs_var = tk.BooleanVar(value=self.session.get('thumbnails', True))
+        filters.add(widgets.tip(ttk.Checkbutton(filters, text='Pictures', variable=self.thumbs_var, style='Panel.TCheckbutton',
+                    command=self._apply_thumbnail_mode),
+                    'Show a picture next to each skin: your own skin images (Settings › Skin images) or a render the app '
+                    'saves the first time you open a skin.'))
         assets_body = ttk.Frame(center, style='Panel.TFrame')
         assets_body.pack(fill='both', expand=True)
         cols = ('name', 'quality', 'state')
-        self.simple_assets = ttk.Treeview(assets_body, columns=cols, show='headings', selectmode='browse')
+        # extended: Ctrl/Shift-click several skins to export them together; the clicked one is previewed
+        self.simple_assets = ttk.Treeview(assets_body, columns=cols, show='headings', selectmode='extended')
         for column, title, width, stretch in (('name', 'Name', 140, True), ('quality', 'Rarity', 96, False), ('state', 'Model', 104, False)):
             self.simple_assets.heading(column, text=title, anchor='w')
             self.simple_assets.column(column, width=width, minwidth=60, stretch=stretch, anchor='w')
         self.simple_assets.pack(side='left', fill='both', expand=True)
         assets_scroll = ttk.Scrollbar(assets_body, orient='vertical', command=self.simple_assets.yview)
         assets_scroll.pack(side='right', fill='y', padx=(4, 0))
-        self.simple_assets.configure(yscrollcommand=assets_scroll.set)
+        self.simple_assets.configure(yscrollcommand=lambda *a: (assets_scroll.set(*a), self._schedule_thumbnails()))
+        self.simple_assets.bind('<Configure>', self._schedule_thumbnails, add='+')
         self.simple_assets.bind('<<TreeviewSelect>>', self._swap_selection_tags)
         self.simple_assets.bind('<<TreeviewSelect>>', self._simple_asset_selected, add='+')
+        self.simple_assets.bind('<<TreeviewSelect>>', lambda _e: self._refresh_export_controls(), add='+')
         self._held_tags = {}
 
         # Inspector
@@ -239,6 +248,11 @@ class LibraryPage:
                                          'Open the game folder that holds the package this model comes from.'), gap=0)
         self.open_export_btn = links.add(widgets.tip(ttk.Button(links, text='Open last export', style='Ghost.Panel.TButton',
                                          command=self._open_last_export), 'Open the folder of the most recent export.'))
+        links.add(widgets.tip(ttk.Button(links, text='Export whole list…', style='Ghost.Panel.TButton', command=self._export_list),
+                              'Export every skin in the list on the left (after search and filters), one after another.'))
+        self.batch_cancel_btn = widgets.tip(ttk.Button(links, text='Cancel batch', style='Ghost.Panel.TButton', command=self._cancel_batch),
+                                            'Stop after the skin being exported now.')
+        self._export_links = links
         self.open_source_btn.state(['disabled']); self.open_export_btn.state(['disabled'])
         folder = ttk.Frame(export, style='Panel.TFrame')
         folder.pack(fill='x', pady=(4, 10))
@@ -283,6 +297,7 @@ class LibraryPage:
         for row, (widget, pady) in enumerate(rows):
             widget.grid(row=row, column=0, sticky='nsew', pady=pady)
         detail.columnconfigure(0, weight=1); detail.rowconfigure(1, weight=1)
+        self._apply_thumbnail_mode()
         self.simple_info.grid_remove()
 
     def refresh_simple_library(self):
@@ -352,6 +367,7 @@ class LibraryPage:
         else:
             rows = self.catalog.search_assets(text, asset_type='mdl_', limit=2500)
         self.simple_assets.delete(*self.simple_assets.get_children()); self._held_tags = {}
+        self._clear_thumbnails(); self._previewed_iid = None
         shown = 0
         for r in rows:
             if spec[0] == 'owner':
@@ -361,9 +377,11 @@ class LibraryPage:
                 shown += 1
                 self.simple_assets.insert('', 'end', iid=f'cosmetic:{r["id"]}', tags=(str(r['quality']).lower(),) if found else ('muted',),
                                           values=(r['name'], r['quality'], 'Ready' if found else 'Not available'))
+                self._remember_thumb_row(f'cosmetic:{r["id"]}', r)
             else:
                 self.simple_assets.insert('', 'end', iid=f'simple:{r["id"]}',
                                           values=(r['name'] or f'Unnamed {r["guid"]}', r['type'], r['decode_status']))
+        self._schedule_thumbnails()
         count = shown if spec[0] == 'owner' else len(rows)
         self.list_count_var.set(f'{count:,} item' + ('' if count == 1 else 's'))
         self.preview.clear('Select an item to preview it')
@@ -382,6 +400,10 @@ class LibraryPage:
         sel = self.simple_assets.selection()
         if not sel:
             return
+        focus = self.simple_assets.focus()
+        item = focus if focus in sel else sel[-1]
+        if item == getattr(self, '_previewed_iid', None) and len(sel) > 1: return  # extending a multi-selection
+        self._previewed_iid = item; sel = (item,)
         self._selection_serial += 1
         self._model = None
         self.export_btn.state(['disabled'])
@@ -519,7 +541,7 @@ class LibraryPage:
             sources,textures=cached
             if all(Path(p).exists() and (Path(p).stat().st_size,Path(p).stat().st_mtime_ns)==(size,stamp) for p,size,stamp in sources):
                 self._preview_cache.move_to_end(key);self._preview_pixels.update(textures)
-                self.preview.set_textures(textures);return
+                self.preview.set_textures(textures);self.after(400,lambda:self._capture_thumbnail(serial));return
             del self._preview_cache[key]
         def worker():
             textures={};errors=[];sources={Path(model.source)}
@@ -630,6 +652,7 @@ class LibraryPage:
     def _export(self):
         """The Export button: model or animation, depending on the choice in the Export section."""
         if self.export_kind.get() == 'animation': self._export_animation()
+        elif self._batch_size(): self._export_batch()
         else: self._export_model()
 
     def _export_label(self):
@@ -642,7 +665,7 @@ class LibraryPage:
         if self._animation is None or not self._model or self._busy or self._scanning: return
         self.export_kind.set('animation'); self._refresh_export_controls()
         title = self._clip_title(self._animation)
-        folder = Path(self.export_path_var.get()) / safe_name(f'{self._export_label()} - {title}')
+        folder = self._export_folder_for(self._cosmetic) / safe_name(f'{self._export_label()} - {title}')
         path = folder / (safe_name(title) + '.aas.json')
         if folder.exists() and not messagebox.askyesno('Replace export?', f'"{folder.name}" already exists in the export folder.\n\nReplace it?', parent=self):
             return
@@ -666,9 +689,9 @@ class LibraryPage:
         if not self._model or not self._model.material_family_resolved or self._busy or self._scanning: return
         if self.export_kind.get() != 'model': self.export_kind.set('model'); self._refresh_export_controls()
         model = self._model
-        cosmetic = dict(self._cosmetic) if self._cosmetic else None
+        cosmetic = self._cosmetic_for_export(self._cosmetic)
         label = self._export_label()
-        root = self.game_path.get(); destination = self.export_path_var.get()
+        root = self.game_path.get(); destination = self._export_folder_for(self._cosmetic)
         existing=Path(destination)/safe_name(label)
         overwrite=existing.exists()
         if overwrite and not messagebox.askyesno('Replace export?', f'"{existing.name}" already exists in the export folder.\n\nReplace it?', parent=self): return

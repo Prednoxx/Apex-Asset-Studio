@@ -430,6 +430,14 @@ class Catalog:
                 AND (? IS NULL OR owner_guid=?) ORDER BY owner_name,name LIMIT ?""",
                 (f'%{text}%', f'%{text}%', owner_guid, owner_guid, limit)).fetchall()
 
+    def settings_values(self, guid):
+        """Decoded settings values of one settings asset (an item flavor), or {}."""
+        with self.connect() as db:
+            row = db.execute("""SELECT d.details FROM assets a JOIN asset_details d ON d.asset_id=a.id
+                WHERE a.guid=? AND d.status='settings_decoded' LIMIT 1""", (guid,)).fetchone()
+        try: return json.loads(row['details']).get('values', {}) if row else {}
+        except (ValueError, TypeError): return {}
+
     def get_cosmetic(self, cosmetic_id):
         with self.connect() as db:
             return db.execute("SELECT * FROM cosmetics WHERE id=?", (cosmetic_id,)).fetchone()

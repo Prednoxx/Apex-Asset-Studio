@@ -434,6 +434,8 @@ def apply(app, value):
                         borderwidth=0, relief='flat', bordercolor=bg, lightcolor=bg, darkcolor=bg, font=f['body'], indent=14)
         style.map(name, background=[('selected', c['selection'])], foreground=[('selected', c['selection_text'])])
         style.layout(name, [('Treeview.treearea', {'sticky': 'nswe'})])
+    style.configure('Thumbs.Treeview', rowheight=max(64, font.Font(font=f['body']).metrics('linespace') + 12))
+    style.layout('Thumbs.Treeview', [('Treeview.treearea', {'sticky': 'nswe'})])
     style.configure('Treeview.Heading', background=c['surface'], foreground=c['muted'], relief='flat', padding=(10, 7),
                     font=f['strong'], bordercolor=c['border'], lightcolor=c['surface'], darkcolor=c['surface'])
     style.map('Treeview.Heading', background=[('active', c['raised'])], foreground=[('active', c['text'])])

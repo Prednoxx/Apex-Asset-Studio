@@ -85,7 +85,43 @@ PRESETS = {
         _world((1.0, 1.0, 1.0), (1.0, 1.0, 1.0), (.9, .9, .9), .7)),
 }
 
+# The skin's own lobby lights, read from the export (Apex Asset Studio 0.4+ writes them into the .aas.json).
+PRESETS['LOBBY'] = ('Apex Lobby', "The light colors and strengths the game uses for this skin in the lobby", [],
+                    _world((.03, .03, .035), (.025, .025, .03), (.01, .01, .01), .5))
+# where each lobby light sits (the game stores colors and strengths, not positions)
+LOBBY_LAYOUT = {'Key': (-35, 25, 2.2), 'Fill': (45, 8, 2.4), 'RimL': (140, 30, 2.4), 'RimR': (-140, 30, 2.4)}
+LOBBY_POWER = 330  # Watts per unit of the game's brightness, for a 2 m model
+
 PRESET_ITEMS = [(key, name, description) for key, (name, description, _l, _w) in PRESETS.items()]
+
+
+def preset_name(key):
+    return PRESETS.get(key, ('Custom',))[0]
+
+
+def lobby_lights(context):
+    """Light specs for the 'Apex Lobby' preset from the imported export's lobby lighting."""
+    import json
+    from pathlib import Path
+    path = Path(context.scene.aas_settings.manifest_path or '')
+    try:
+        manifest = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        raise ValueError('Import an Apex Asset Studio export first')
+    data = ((manifest.get('metadata') or {}).get('cosmetic') or {}).get('lobby_lighting')
+    if not data or not data.get('lights'):
+        raise ValueError('This export has no lobby lighting. Re-export the skin with Apex Asset Studio 0.4 or newer')
+    specs = []
+    for name, light in data['lights'].items():
+        if name not in LOBBY_LAYOUT or light['brightness'] <= 0: continue
+        azimuth, elevation, distance = LOBBY_LAYOUT[name]
+        cone = light.get('cone_degrees') or 30
+        specs.append(dict(kind='SPOT', azimuth=azimuth, elevation=elevation, distance=distance,
+                          energy=light['brightness'] * LOBBY_POWER, color=tuple(light['color']), size=.15, role='',
+                          name={'RimL': 'Rim Left', 'RimR': 'Rim Right'}.get(name, name),
+                          cone=min(cone * 2, 170), blend=max(0., min(1., 1 - (light.get('inner_cone_degrees') or cone * .8) / cone)),
+                          shadows=light.get('shadows', True)))
+    return specs
 
 
 # ---------------------------------------------------------------------------------------------- model bounds
@@ -128,13 +164,14 @@ def clear(context, restore_world=True):
     collection = bpy.data.collections.get(COLLECTION)
     if collection:
         for obj in list(collection.objects):
+            if not obj.get('aas_rig'): continue  # the turntable and the Scene-ready camera stay
             data = obj.data
             bpy.data.objects.remove(obj, do_unlink=True)
             if data is not None and data.users == 0:
                 if isinstance(data, bpy.types.Light): bpy.data.lights.remove(data)
                 elif isinstance(data, bpy.types.Mesh): bpy.data.meshes.remove(data)
                 elif isinstance(data, bpy.types.Camera): bpy.data.cameras.remove(data)
-        if collection.users <= 1 or not collection.objects:
+        if not collection.objects:
             bpy.data.collections.remove(collection)
     scene = context.scene
     if restore_world and 'aas_previous_world' in scene:
@@ -180,6 +217,7 @@ def _set_world(context, name, spec, strength):
 def apply(context, preset, settings):
     """Build the rig for `preset` around the model. Returns (number of lights, model height)."""
     name, _description, lights, world = PRESETS[preset]
+    if preset == 'LOBBY': lights = lobby_lights(context)
     objects = model_objects(context)
     center, size, floor = bounds(objects)
     clear(context, restore_world=False)
@@ -187,7 +225,7 @@ def apply(context, preset, settings):
     target = bpy.data.objects.new(TARGET, None)
     target.empty_display_type = 'SPHERE'; target.empty_display_size = size * .05
     target.location = center; target.rotation_euler.z = math.radians(settings.light_rotation)
-    target['aas_preset'] = preset; target['aas_size'] = size
+    target['aas_preset'] = preset; target['aas_size'] = size; target['aas_rig'] = True
     collection.objects.link(target)
     scale = (size / 2.0) ** 2 * AREA_EXPOSURE  # distances scale with the model, so power scales with its size²
     for spec in lights:
@@ -207,8 +245,11 @@ def apply(context, preset, settings):
                 data.shape = 'DISK'; data.size = spec['size'] * size
             else:
                 data.shadow_soft_size = spec['size'] * size * .5
+                if spec['kind'] == 'SPOT':
+                    data.spot_size = math.radians(spec.get('cone', 60)); data.spot_blend = spec.get('blend', .2)
+            if hasattr(data, 'use_shadow'): data.use_shadow = spec.get('shadows', True)
         data['aas_base_energy'] = base; data['aas_role'] = spec['role']
-        light = bpy.data.objects.new(f"AAS {spec['name']}", data)
+        light = bpy.data.objects.new(f"AAS {spec['name']}", data); light['aas_rig'] = True
         collection.objects.link(light)
         light.parent = target
         light.location = _place(target, size, spec['azimuth'], spec['elevation'], spec['distance'])
@@ -225,15 +266,16 @@ def _floor(collection, center, size, floor):
     mesh = bpy.data.meshes.new('AAS Floor')
     half = size * 3
     mesh.from_pydata([(-half, -half, 0), (half, -half, 0), (half, half, 0), (-half, half, 0)], [], [(0, 1, 2, 3)])
-    obj = bpy.data.objects.new('AAS Floor', mesh)
+    obj = bpy.data.objects.new('AAS Floor', mesh); obj['aas_rig'] = True
     obj.location = (center.x, center.y, floor)
     obj.is_shadow_catcher = True  # Cycles keeps only the shadows; the plane itself stays invisible in renders
     collection.objects.link(obj)
 
 
 def _camera(context, collection, center, size):
+    if bpy.data.objects.get('AAS Camera'): return  # keep the Scene-ready camera
     data = bpy.data.cameras.new('AAS Camera'); data.lens = 50
-    camera = bpy.data.objects.new('AAS Camera', data)
+    camera = bpy.data.objects.new('AAS Camera', data); camera['aas_rig'] = True
     collection.objects.link(camera)
     # front, slightly above, far enough that the whole model fits a 50 mm frame with some margin
     distance = size * 2.6

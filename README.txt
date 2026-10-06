@@ -16,6 +16,10 @@ BROWSE
   skins" to search every Legend and weapon at once.
 - The 3D preview has soft lighting, a ground shadow and see-through hair and
   glass edges. The playing animation's name and length show in its corner.
+- Pictures: tick "Pictures" to see a picture next to each skin. Put store
+  cards or renders in the Skin images folder (Settings > Skin images) named
+  "<Legend or weapon> - <Skin>.png", e.g. "Wraith - Airship Assassin.png".
+  Skins without one get a render the first time you open them.
 - Clicking another skin while one is loading cancels the first load. Only the
   most detailed LOD loads at first; other LODs load when you pick them.
 - In the preview: drag to rotate, Shift-drag or right-drag to pan, scroll to
@@ -30,7 +34,14 @@ EXPORT
 - Choose formats: GLB, glTF and/or CAST. "All detail levels" also exports the
   lower-detail LOD meshes. "Include animation" adds the chosen clip.
 - Exports go to the Exports folder (beside the EXE, or the master folder's
-  Exports when run from source). "Open last export" opens the result.
+  Exports when run from source), in a folder per Legend or weapon:
+  Exports\Wraith\Wraith - Airship Assassin - Full body\
+- Batch: Ctrl-click or Shift-click several skins and press "Export N skins",
+  or use "Export whole list..." for everything listed. Each skin's main model
+  (full body / world model) is exported with the current options; skins that
+  were already exported are skipped, and you can cancel at any time.
+- Skin exports also store the skin's lobby lighting (its light colors and
+  strengths from the game) for the Blender add-on's "Apex Lobby" preset. "Open last export" opens the result.
 - Export > "Animation only" saves just the animation in the preview (a GLB
   with the skeleton and motion plus an .aas.json), in a "<skin> - <animation>"
   folder next to your model exports. Ctrl+Shift+E does the same.
@@ -51,7 +62,15 @@ BLENDER
   applying, Intensity, Rotate and Background adjust the rig live, and
   Remove takes it away and restores your previous world. Optional:
   a shadow-catcher floor (Cycles) and a framed camera. "Light on import"
-  adds a preset automatically after every model import.
+  adds a preset automatically after every model import. "Apex Lobby" uses the
+  skin's own lobby light colors from the export.
+- Scene & Render: "Scene Ready" sets up the lighting preset, a framed camera
+  (Full body 1920x1080 or Portrait 1080x1350) and render settings (Cycles or
+  EEVEE, optional transparent background). "Scene ready on import" does this
+  for every model you import.
+- Turntable: "Make Turntable" spins the model once around its feet (8 s by
+  default, lights stay still) and sets the output to an MP4 next to the
+  export; "Render Turntable" renders it. "Remove" puts the model back.
 
 SETTINGS
 - Themes: Aero Night, Aero Day, Frutiger Aqua, Frutiger Eco, Frutiger Metro,

@@ -91,6 +91,16 @@ class SettingsPage:
         ttk.Button(cache_buttons, text='Move cache…', style='Ghost.TButton', command=self._move_cache).pack(side='left', padx=(4, 0))
         self.settings_canvas.bind('<Map>', lambda _e: self._measure_storage(), add='+')
 
+        images = section('Skin images', 'Pictures shown next to skins in the Library list. Put store cards or renders here, '
+                         'named "<Legend or weapon> - <Skin>", for example "Wraith - Airship Assassin.png" (PNG, JPG or WebP). '
+                         'Skins without one show a render the app saves the first time you open them.')
+        self.skin_images_text = tk.StringVar(value=str(self.thumbs.images_folder))
+        ttk.Label(images, textvariable=self.skin_images_text, style='Muted.TLabel').pack(anchor='w', pady=(0, 8))
+        image_buttons = ttk.Frame(images); image_buttons.pack(anchor='w')
+        ttk.Button(image_buttons, text='Open folder', command=lambda: open_folder(self.thumbs.images_folder)).pack(side='left')
+        ttk.Button(image_buttons, text='Use another folder…', style='Ghost.TButton', command=self._choose_skin_images).pack(side='left', padx=(8, 0))
+        ttk.Button(image_buttons, text='Clear saved renders', style='Ghost.TButton', command=self._clear_renders).pack(side='left', padx=(4, 0))
+
         access = section('Accessibility', 'Text size applies everywhere, including lists and the startup screen.')
         self.text_scale_var = tk.DoubleVar(value=self.appearance['text_scale'])
         sizes = ttk.Frame(access); sizes.pack(anchor='w')
@@ -355,6 +365,21 @@ class SettingsPage:
     def _restore_mascot(self):
         self.appearance['mascot_path'] = ''; self.appearance['show_mascot'] = True; self.mascot_var.set(True)
         self._apply_appearance()
+
+    def _choose_skin_images(self):
+        folder = filedialog.askdirectory(title='Folder with skin images', initialdir=str(self.thumbs.images_folder))
+        if not folder: return
+        self.session['skin_images'] = folder; self._save_session()
+        self.thumbs.images_folder = Path(folder); self.thumbs._index = None
+        self.skin_images_text.set(folder); self._clear_thumbnails(); self._search_simple()
+
+    def _clear_renders(self):
+        removed = 0
+        for path in self.thumbs.rendered_folder.glob('*.png'):
+            try: path.unlink(); removed += 1
+            except OSError: pass
+        self.status_var.set(f'Removed {removed:,} saved renders. New ones are made as you open skins.')
+        self._clear_thumbnails(); self._search_simple()
 
     # ---- storage ---------------------------------------------------------------------------------
     def _cache_dir(self):

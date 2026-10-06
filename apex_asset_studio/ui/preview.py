@@ -281,7 +281,7 @@ class ModelPreview(OpenGLFrame):
         GL.glDisable(GL.GL_TEXTURE_2D)
         GL.glEnable(GL.GL_LIGHTING); GL.glEnable(GL.GL_DEPTH_TEST)
 
-    def redraw(self):
+    def _upload_textures(self):
         if getattr(self,'_delete_textures',False):
             if self._textures: GL.glDeleteTextures(list(self._textures.values()))
             self._textures={};self._delete_textures=False
@@ -294,6 +294,48 @@ class ModelPreview(OpenGLFrame):
                 GL.glTexParameteri(GL.GL_TEXTURE_2D,GL.GL_TEXTURE_MAG_FILTER,GL.GL_LINEAR)
                 GL.glTexImage2D(GL.GL_TEXTURE_2D,0,GL.GL_SRGB8_ALPHA8 if srgb else GL.GL_RGBA8,width,height,0,GL.GL_RGBA,GL.GL_UNSIGNED_BYTE,pixels)
             self._new_textures=None
+
+    def capture(self, width=176, height=220):
+        """Render the loaded model, textured, on a transparent background into an offscreen framebuffer and
+        return it as a PIL image (front three-quarter view, feet at the bottom). The on-screen view is untouched.
+        Returns None when there is nothing to draw or the driver lacks framebuffer objects."""
+        if not self.has_geometry or not self.context_created: return None
+        self.tkMakeCurrent()
+        w,h=width*2,height*2  # render at 2x and downsample for smooth edges
+        try:
+            fbo=GL.glGenFramebuffers(1); color,depth=GL.glGenRenderbuffers(2)
+        except Exception:
+            return None
+        saved=(self.yaw,self.pitch,self.zoom,self.pan.copy())
+        try:
+            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER,fbo)
+            GL.glBindRenderbuffer(GL.GL_RENDERBUFFER,color); GL.glRenderbufferStorage(GL.GL_RENDERBUFFER,GL.GL_SRGB8_ALPHA8,w,h)
+            GL.glFramebufferRenderbuffer(GL.GL_FRAMEBUFFER,GL.GL_COLOR_ATTACHMENT0,GL.GL_RENDERBUFFER,color)
+            GL.glBindRenderbuffer(GL.GL_RENDERBUFFER,depth); GL.glRenderbufferStorage(GL.GL_RENDERBUFFER,GL.GL_DEPTH_COMPONENT24,w,h)
+            GL.glFramebufferRenderbuffer(GL.GL_FRAMEBUFFER,GL.GL_DEPTH_ATTACHMENT,GL.GL_RENDERBUFFER,depth)
+            if GL.glCheckFramebufferStatus(GL.GL_FRAMEBUFFER)!=GL.GL_FRAMEBUFFER_COMPLETE: return None
+            self._upload_textures()
+            GL.glViewport(0,0,w,h); GL.glClearColor(0,0,0,0)
+            GL.glClear(GL.GL_COLOR_BUFFER_BIT|GL.GL_DEPTH_BUFFER_BIT)
+            self.yaw,self.pitch,self.zoom=-.35,.12,1.0; self.pan[:]=0
+            self._draw_model(w,h)
+            data=GL.glReadPixels(0,0,w,h,GL.GL_RGBA,GL.GL_UNSIGNED_BYTE)
+            raw=data if isinstance(data,bytes) else np.asarray(data,dtype=np.uint8).tobytes()
+            image=Image.frombytes('RGBA',(w,h),raw).transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+        finally:
+            self.yaw,self.pitch,self.zoom,self.pan=saved[0],saved[1],saved[2],saved[3]
+            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER,0)
+            GL.glDeleteRenderbuffers(2,[color,depth]); GL.glDeleteFramebuffers(1,[fbo])
+            GL.glViewport(0,0,max(self.winfo_width(),1),max(self.winfo_height(),1))
+            self.schedule()
+        box=image.getchannel('A').point(lambda a:255 if a>8 else 0).getbbox()
+        if not box: return None
+        image=image.crop(box); image.thumbnail((width-8,height-8),Image.Resampling.LANCZOS)
+        out=Image.new('RGBA',(width,height),(0,0,0,0)); out.alpha_composite(image,((width-image.width)//2,height-image.height-4))
+        return out
+
+    def redraw(self):
+        self._upload_textures()
         color=[v/65535 for v in self.winfo_rgb(self._background)]
         GL.glClearColor(*_linear(color),1)
         GL.glClear(GL.GL_COLOR_BUFFER_BIT|GL.GL_DEPTH_BUFFER_BIT)
