@@ -1,6 +1,7 @@
 import math
 import numpy as np
 from OpenGL import GL
+from PIL import Image
 from pyopengltk import OpenGLFrame
 
 
@@ -29,10 +30,10 @@ class ModelPreview(OpenGLFrame):
         self.yaw=-.35; self.pitch=-.05; self.zoom=1.; self._drag=None
         self.pan=np.zeros(2,dtype=np.float32)
         self._background='#16191d'; self._pending=None
-        self._grid='#ff2e88'; self._hud='#00e5ff'; self._scanlines=True; self._floor='grid'
         self._textures={}; self._new_textures={}; self._texture_key=None
-        # Called with the placeholder text to show over the viewport ('' hides it).
-        self.message_callback=None
+        # Backdrop art: painter(width, height, message) -> PIL RGBA image, drawn behind the model as one texture.
+        # Empty-state messages ('Select an item…') are painted into it, so they sit on the art without a box.
+        self._painter=None; self.message=''; self._bg_key=None; self._bg_texture=None; self._bg_timer=None
         self.bind('<ButtonPress-1>',self._down)
         self.bind('<B1-Motion>',self._move)
         self.bind('<MouseWheel>',self._wheel)
@@ -65,15 +66,14 @@ class ModelPreview(OpenGLFrame):
         GL.glEnable(GL.GL_FRAMEBUFFER_SRGB)
         self.schedule()
 
-    def set_palette(self, background, foreground, muted, grid=None, hud=None, scanlines=True, floor=None):
-        self._background=background; self._scanlines=scanlines
-        if floor: self._floor=floor
-        if grid: self._grid=grid
-        if hud: self._hud=hud
-        self.schedule()
+    def set_palette(self, background):
+        self._background=background; self.schedule()
+
+    def set_backdrop(self, painter):
+        self._painter=painter; self._bg_key=None; self.schedule()
 
     def _message(self, text):
-        if self.message_callback: self.message_callback(text)
+        if text!=self.message: self.message=text; self._bg_key=None
 
     def clear(self, message=''):
         self.vertices=np.empty((0,3),dtype=np.float32)
@@ -122,6 +122,7 @@ class ModelPreview(OpenGLFrame):
 
     def destroy(self):
         if self._pending is not None:self.after_cancel(self._pending);self._pending=None
+        if self._bg_timer is not None:self.after_cancel(self._bg_timer);self._bg_timer=None
         if self.context_created:
             from OpenGL import WGL
             WGL.wglMakeCurrent(0,0)
@@ -178,150 +179,40 @@ class ModelPreview(OpenGLFrame):
 
     def _rgb(self, color): return [v/65535 for v in self.winfo_rgb(color)]
 
-    def _draw_backdrop(self, color):
-        """Dark gradient with a neon perspective floor grid (synthwave horizon)."""
-        top=[min(1.,v+.03) for v in color]
-        grid=self._rgb(self._grid)
-        def tint(amount): return _linear([g*amount+c*(1-amount) for g,c in zip(grid,color)])
+    def _refresh_backdrop(self, w, h):
+        """Repaint the backdrop texture when the size, message or theme changes. While the view is being resized
+        the old texture is stretched and the repaint waits until resizing pauses."""
+        key=(w,h,self.message,self._painter)
+        if self._painter is None or key==self._bg_key: return
+        if self._bg_texture is not None and self._bg_key and self._bg_key[2:]==key[2:] and self._bg_timer is None:
+            self._bg_timer=self.after(140,self._resized); return
+        if self._bg_timer is not None: return
+        image=self._painter(w,h,self.message).convert('RGBA').transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+        if self._bg_texture is None: self._bg_texture=GL.glGenTextures(1)
+        GL.glBindTexture(GL.GL_TEXTURE_2D,self._bg_texture)
+        GL.glTexParameteri(GL.GL_TEXTURE_2D,GL.GL_TEXTURE_MIN_FILTER,GL.GL_LINEAR)
+        GL.glTexParameteri(GL.GL_TEXTURE_2D,GL.GL_TEXTURE_MAG_FILTER,GL.GL_LINEAR)
+        GL.glTexParameteri(GL.GL_TEXTURE_2D,GL.GL_TEXTURE_WRAP_S,GL.GL_CLAMP_TO_EDGE)
+        GL.glTexParameteri(GL.GL_TEXTURE_2D,GL.GL_TEXTURE_WRAP_T,GL.GL_CLAMP_TO_EDGE)
+        GL.glPixelStorei(GL.GL_UNPACK_ALIGNMENT,4)
+        GL.glTexImage2D(GL.GL_TEXTURE_2D,0,GL.GL_SRGB8_ALPHA8,image.width,image.height,0,GL.GL_RGBA,GL.GL_UNSIGNED_BYTE,image.tobytes())
+        self._bg_key=key
+
+    def _resized(self):
+        self._bg_timer=None; self._bg_key=None; self.schedule()
+
+    def _draw_backdrop(self, w, h):
+        self._refresh_backdrop(w,h)
+        if self._bg_texture is None: return
         GL.glMatrixMode(GL.GL_PROJECTION); GL.glLoadIdentity()
         GL.glMatrixMode(GL.GL_MODELVIEW); GL.glLoadIdentity()
-        GL.glDisable(GL.GL_LIGHTING); GL.glDisable(GL.GL_DEPTH_TEST); GL.glDisable(GL.GL_TEXTURE_2D)
+        GL.glDisable(GL.GL_LIGHTING); GL.glDisable(GL.GL_DEPTH_TEST)
+        GL.glEnable(GL.GL_TEXTURE_2D); GL.glBindTexture(GL.GL_TEXTURE_2D,self._bg_texture)
+        GL.glColor4f(1,1,1,1)
         GL.glBegin(GL.GL_QUADS)
-        GL.glColor3f(*_linear(color)); GL.glVertex2f(-1,-1); GL.glVertex2f(1,-1)
-        GL.glColor3f(*_linear(top)); GL.glVertex2f(1,1); GL.glVertex2f(-1,1)
+        for u,v in ((0,0),(1,0),(1,1),(0,1)): GL.glTexCoord2f(u,v); GL.glVertex2f(u*2-1,v*2-1)
         GL.glEnd()
-        hud=self._rgb(self._hud)
-        def tint2(amount): return _linear([g*amount+c*(1-amount) for g,c in zip(hud,color)])
-        floor=self._floor; horizon=-.18
-        w,h=max(self.winfo_width(),1),max(self.winfo_height(),1); aspect=w/h
-        if floor=='sun':
-            # striped sunset disc sitting on the horizon
-            import math as _m
-            r=.5; cy=horizon
-            for i in range(48):
-                y0=cy+r*i/48; y1=cy+r*(i+1)/48
-                band=int(i/48*9)
-                if band%2==1 and i<30: continue
-                ca=_m.sqrt(max(0,r*r-(y0-cy)**2))/aspect; cb=_m.sqrt(max(0,r*r-(y1-cy)**2))/aspect
-                k=i/48
-                GL.glBegin(GL.GL_QUADS)
-                GL.glColor3f(*_linear([a*(1-k)+b*k for a,b in zip(grid,(1.,.84,.42))]))
-                GL.glVertex2f(-ca,y0);GL.glVertex2f(ca,y0);GL.glVertex2f(cb,y1);GL.glVertex2f(-cb,y1)
-                GL.glEnd()
-        if floor in ('grid','sun'):
-            GL.glBegin(GL.GL_QUADS)
-            GL.glColor3f(*_linear(color)); GL.glVertex2f(-1,-1); GL.glVertex2f(1,-1); GL.glVertex2f(1,horizon); GL.glVertex2f(-1,horizon)
-            GL.glEnd()
-            line=tint2 if floor=='sun' else tint
-            GL.glBegin(GL.GL_LINES)
-            for i in range(1,15):
-                depth=i/14; y=horizon-(1+horizon)*depth**2.2
-                GL.glColor3f(*line(.10+.32*depth)); GL.glVertex2f(-1,y); GL.glVertex2f(1,y)
-            for i in range(-12,13):
-                GL.glColor3f(*line(.10)); GL.glVertex2f(i*.04,horizon)
-                GL.glColor3f(*line(.42)); GL.glVertex2f(i*.32,-1)
-            GL.glColor3f(*line(.55)); GL.glVertex2f(-1,horizon); GL.glVertex2f(1,horizon)
-            GL.glEnd()
-        elif floor=='aero':
-            # Frutiger Aero backdrop: soft accent glow, translucent light ribbons and bokeh
-            GL.glEnable(GL.GL_BLEND); GL.glBlendFunc(GL.GL_SRC_ALPHA,GL.GL_ONE_MINUS_SRC_ALPHA)
-            g=_linear(grid); h2=_linear(hud)
-            for cx,cy,rx,ry,col,alpha in ((.0,-1.05,1.4,.85,g,.17),(.85,.8,.9,.7,h2,.08)):
-                GL.glBegin(GL.GL_TRIANGLE_FAN); GL.glColor4f(*col,alpha); GL.glVertex2f(cx,cy)
-                GL.glColor4f(*col,0)
-                for k in range(41):
-                    ang=k/40*math.tau; GL.glVertex2f(cx+rx*math.cos(ang),cy+ry*math.sin(ang))
-                GL.glEnd()
-            for i,(base,amp,phase,thick,alpha) in enumerate(((-.35,.16,.4,.05,.10),(-.48,.12,1.9,.025,.14),(-.2,.2,3.1,.012,.18))):
-                GL.glBegin(GL.GL_TRIANGLE_STRIP)
-                for k in range(61):
-                    x=-1+k/30; y=base+amp*math.sin(x*2.2+phase)
-                    fade=alpha*(1-abs(x)*.55)
-                    GL.glColor4f(1,1,1,fade); GL.glVertex2f(x,y+thick); GL.glColor4f(1,1,1,0); GL.glVertex2f(x,y-thick*2.5)
-                GL.glEnd()
-            GL.glDisable(GL.GL_BLEND)
-        elif floor=='promo':
-            # airy promo backdrop: hexagon outlines on the right, soft floating squares, dotted rain lines lower-left
-            size=.075; dx=size*1.732; GL.glBegin(GL.GL_LINES)
-            for row in range(-14,15):
-                for col in range(0,16):
-                    cx=.25+col*dx/aspect+(dx/2/aspect if row%2 else 0); cy=row*size*1.5
-                    fade=max(0.,min(1.,(cx-.25)*2.2))
-                    if fade<=0: continue
-                    GL.glColor3f(*tint(.10*fade+.02))
-                    pts=[(cx+size*_c/aspect,cy+size*_s) for _c,_s in ((0,1),(.866,.5),(.866,-.5),(0,-1),(-.866,-.5),(-.866,.5))]
-                    for a2,b2 in zip(pts,pts[1:]+pts[:1]): GL.glVertex2f(*a2); GL.glVertex2f(*b2)
-            for i in range(26):
-                x=-.95+i*.028; length=.25+((i*37)%11)/22
-                for k in range(int(length/.02)):
-                    y=-1+k*.02
-                    if k%2==0:
-                        GL.glColor3f(*tint(.16)); GL.glVertex2f(x,y); GL.glVertex2f(x,y+.01)
-            GL.glEnd()
-            GL.glBegin(GL.GL_QUADS)
-            for x0,y0,sz,amount in ((-.7,.45,.16,.05),(-.35,.62,.09,.04),(.05,.3,.12,.035),(-.85,-.1,.1,.03),(.55,-.55,.14,.04)):
-                GL.glColor3f(*tint(amount*1.3))
-                GL.glVertex2f(x0,y0); GL.glVertex2f(x0+sz/aspect,y0); GL.glVertex2f(x0+sz/aspect,y0+sz); GL.glVertex2f(x0,y0+sz)
-            GL.glEnd()
-        elif floor=='halftone':
-            # halftone dots swelling toward the lower-left corner plus two soft diagonal light bands
-            GL.glBegin(GL.GL_QUADS)
-            for x0,width,amount in ((-.55,.32,.05),(-.05,.12,.035)):
-                GL.glColor3f(*tint(amount)); GL.glVertex2f(x0,1); GL.glVertex2f(x0+width,1)
-                GL.glVertex2f(x0+width-1.1,-1); GL.glVertex2f(x0-1.1,-1)
-            GL.glEnd()
-            step=.055
-            for size in (1,2,3,4,5,6):
-                GL.glPointSize(size); GL.glBegin(GL.GL_POINTS); GL.glColor3f(*tint(.22+.06*size))
-                for row in range(0,40):
-                    for col in range(0,60):
-                        x=-1+col*step/aspect*1.0+(step/2/aspect if row%2 else 0); y=-1+row*step
-                        strength=max(0.,1.-((x+1)*.42+(y+1)*.62))*7
-                        if int(strength)==size: GL.glVertex2f(x,y)
-                GL.glEnd()
-        elif floor=='hex':
-            size=.09; dx=size*1.732; GL.glBegin(GL.GL_LINES)
-            for row in range(-14,15):
-                for col in range(-16,17):
-                    cx=col*dx/aspect+(dx/2/aspect if row%2 else 0); cy=row*size*1.5
-                    shade=tint(.07+.16*max(0,-cy))
-                    GL.glColor3f(*shade)
-                    pts=[(cx+size*_cos/aspect,cy+size*_sin) for _cos,_sin in ((0,1),(.866,.5),(.866,-.5),(0,-1),(-.866,-.5),(-.866,.5))]
-                    for a2,b2 in zip(pts,pts[1:]+pts[:1]): GL.glVertex2f(*a2); GL.glVertex2f(*b2)
-            GL.glEnd()
-        elif floor=='dots':
-            GL.glPointSize(3); GL.glBegin(GL.GL_POINTS)
-            for row in range(-12,13):
-                for col in range(-20,21):
-                    GL.glColor3f(*(tint(.35) if (row+col)%2 else tint2(.35)))
-                    GL.glVertex2f(col*.1/aspect*1.6+(.05 if row%2 else 0),row*.085)
-            GL.glEnd()
-        elif floor=='checker':
-            GL.glBegin(GL.GL_QUADS)
-            rows=8
-            for r in range(rows):
-                y0=horizon-(1+horizon)*(r/rows)**1.6; y1=horizon-(1+horizon)*((r+1)/rows)**1.6
-                n=24
-                for c2 in range(-n//2,n//2):
-                    if (r+c2)%2: continue
-                    sx0=c2/(n/2); sx1=(c2+1)/(n/2)
-                    GL.glColor3f(*tint2(.08+.14*r/rows))
-                    GL.glVertex2f(sx0*(.15+.85*r/rows),y0); GL.glVertex2f(sx1*(.15+.85*r/rows),y0)
-                    GL.glVertex2f(sx1*(.15+.85*(r+1)/rows),y1); GL.glVertex2f(sx0*(.15+.85*(r+1)/rows),y1)
-            GL.glEnd()
-        GL.glColor3f(1,1,1)
-        GL.glEnable(GL.GL_LIGHTING); GL.glEnable(GL.GL_DEPTH_TEST)
-
-    def _draw_scanlines(self, w, h):
-        GL.glMatrixMode(GL.GL_PROJECTION); GL.glLoadIdentity(); GL.glOrtho(0,w,0,h,-1,1)
-        GL.glMatrixMode(GL.GL_MODELVIEW); GL.glLoadIdentity()
-        GL.glDisable(GL.GL_LIGHTING); GL.glDisable(GL.GL_DEPTH_TEST); GL.glDisable(GL.GL_TEXTURE_2D)
-        GL.glEnable(GL.GL_BLEND); GL.glBlendFunc(GL.GL_SRC_ALPHA,GL.GL_ONE_MINUS_SRC_ALPHA)
-        GL.glColor4f(0,0,0,.16)
-        GL.glBegin(GL.GL_LINES)
-        for y in range(0,h,3): GL.glVertex2f(0,y+.5); GL.glVertex2f(w,y+.5)
-        GL.glEnd()
-        GL.glDisable(GL.GL_BLEND); GL.glColor4f(1,1,1,1)
+        GL.glDisable(GL.GL_TEXTURE_2D)
         GL.glEnable(GL.GL_LIGHTING); GL.glEnable(GL.GL_DEPTH_TEST)
 
     def redraw(self):
@@ -342,9 +233,8 @@ class ModelPreview(OpenGLFrame):
         GL.glClear(GL.GL_COLOR_BUFFER_BIT|GL.GL_DEPTH_BUFFER_BIT)
         w,h=max(self.winfo_width(),1),max(self.winfo_height(),1)
         GL.glViewport(0,0,w,h)
-        self._draw_backdrop(color)
+        self._draw_backdrop(w,h)
         if self.has_geometry: self._draw_model(w,h)
-        if self._scanlines: self._draw_scanlines(w,h)
 
     def _draw_model(self, w, h):
         extent=self.span/.82/self.zoom/2

@@ -25,10 +25,10 @@ def smoke_test(output, model_guid=None, family=None):
             assert app.preview.context_created
             result.update(title=app.title(), detected_install=app.game_path.get(),
                           export_disabled=app.export_btn.instate(['disabled']),
-                          scan_label=app.scan_btn.cget('text'),
+                          scan_label=app._header_scan()[0],
                           image_mode=Image.new('RGBA',(1,1)).mode,
                           appearance={'preset':app.appearance['preset'], 'layout':app.appearance['layout'],
-                                      'mascot_loaded':hasattr(app, '_mascot_image')})
+                                      'mascot_loaded':hasattr(app, '_orb_image')})
             assert result['export_disabled']
             assert result['appearance']['mascot_loaded']
             if model_guid:

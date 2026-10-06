@@ -1,0 +1,90 @@
+"""Small helpers shared by the app's pages: names, error wording, folder helpers and sortable tables."""
+import os
+import subprocess
+from pathlib import Path
+
+from .. import __version__ as APP_VERSION
+
+APP_NAME = 'Apex Asset Studio'
+LOG_HINT = 'Details are in Advanced › Diagnostics.'
+
+FRIENDLY_ERRORS = (
+    ('is not supported', "This uses a game format the app can't read yet."),
+    ('unsupported', "This uses a game format the app can't read yet."),
+    ('ambiguous across', 'This item exists in more than one game package, so the right one is unclear.'),
+    ('no resolvable base RPak', "This item's game package wasn't found. Try scanning the library again."),
+    ('Material set unavailable', "This skin's materials can't be read yet, so it can't be exported."),
+    ('Permission', 'Windows blocked access to a file. Close anything using the export folder and try again.'),
+    ('No space', 'The drive is full.'),
+    ('FileExistsError', 'An export with this name already exists.'),
+)
+
+
+def friendly_error(text):
+    """Plain-language summary for the status bar; the technical text still goes to the diagnostics log."""
+    for needle, message in FRIENDLY_ERRORS:
+        if needle.lower() in text.lower(): return message
+    return f'Something went wrong. {LOG_HINT}'
+
+
+SHORTCUTS = (('Ctrl+F', 'Search the library'), ('Ctrl+1 … 3', 'Switch page'), ('Space', 'Play / pause animation'),
+             ('R', 'Reset 3D view'), ('Ctrl+E', 'Export model'), ('Ctrl+Shift+E', 'Export animation'),
+             ('F5', 'Scan library'), ('Ctrl + / − / 0', 'Text size bigger / smaller / normal'))
+
+RARITY_ORDER = {'common': 0, 'rare': 1, 'epic': 2, 'legendary': 3, 'mythic': 4, 'iconic': 4, 'heirloom': 5}
+
+
+def make_sortable(tree):
+    """Click a column heading to sort by it; click again to reverse. Numbers and rarities sort naturally."""
+    def key_for(column, value):
+        text = str(value)
+        if column == 'quality' and text.lower() in RARITY_ORDER: return (0, RARITY_ORDER[text.lower()], '')
+        try: return (0, float(text.replace(',', '')), '')
+        except ValueError: return (1, 0, text.casefold())
+    def sort(column):
+        reverse = tree._sort == (column, False)
+        rows = [(key_for(column, tree.set(iid, column)), iid) for iid in tree.get_children('')]
+        for index, (_k, iid) in enumerate(sorted(rows, reverse=reverse)): tree.move(iid, '', index)
+        tree._sort = (column, reverse)
+        for col in tree['columns']:
+            title = tree._titles[col]
+            tree.heading(col, text=title + ((' ▼' if reverse else ' ▲') if col == column else ''))
+    tree._sort = None
+    tree._titles = {col: tree.heading(col, 'text') for col in tree['columns']}
+    for col in tree['columns']: tree.heading(col, command=lambda c=col: sort(c))
+
+
+def open_folder(folder):
+    folder = Path(folder); folder.mkdir(parents=True, exist_ok=True)
+    if os.name == 'nt': os.startfile(folder)
+    else: subprocess.Popen(['xdg-open', str(folder)])
+
+
+def folder_size(folder):
+    total = 0
+    for root, _dirs, files in os.walk(folder):
+        for name in files:
+            try: total += os.path.getsize(os.path.join(root, name))
+            except OSError: pass
+    return total
+
+
+def gb(size):
+    return f'{size / 1024**3:.1f} GB' if size >= 1024**3 else f'{size / 1024**2:.0f} MB'
+
+
+def asset_lines(row):
+    """Technical metadata lines for one indexed asset."""
+    return [
+        f"Type:              {row['type']}",
+        f"GUID:              {row['guid']}",
+        f"Asset version:     {row['version']}",
+        f"Header size:       {row['header_size']}",
+        f"Container:         {row['filename']}",
+        f"Container path:    {row['path']}",
+        f"Compression:       {row['compression']}",
+        f"Patch count:       {row['patch_count']}",
+        f"StarPak offset:    {row['starpak_offset'] or '(none)'}",
+        f"StarPak index:     {row['starpak_index'] if row['starpak_index'] is not None else '(none)'}",
+        f"Opt StarPak:       {row['opt_starpak_offset'] or '(none)'}",
+    ]

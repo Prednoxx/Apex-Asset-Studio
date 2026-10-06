@@ -40,8 +40,17 @@ BLENDER
   glTF in the export.
 
 SETTINGS
-- Theme, text size, high contrast, reduced effects, keyboard shortcuts and the
-  mascot image are all in Settings.
+- Themes: Aero Night, Aero Day, Glacier, Frutiger Aqua, Frutiger Eco,
+  Frutiger Metro and Aurora. The Aero themes take their accent color from
+  the mascot.
+- Text size, high contrast, reduced effects, keyboard shortcuts and the
+  mascot image are also in Settings.
+
+ADVANCED
+- Assets: every indexed game asset, searchable by name, GUID or container.
+- Strings: search readable text inside the game packages.
+- Diagnostics: index health, failed packages, and the log of scans, loads and
+  errors. Save report... writes it all to a file for bug reports.
 
 LIMITS
 - Not supported yet: some animation encodings (datapoint compression, IK,

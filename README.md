@@ -24,10 +24,22 @@ See `README.txt` for the step-by-step guide.
 | Package release ZIPs | `python package_release.py --destination <folder>` |
 | Version number | `apex_asset_studio/__init__.py` (the only place it is set) |
 
-Code layout: `rpak/` reads game packages, `export/` writes GLB/glTF/CAST, `ui/` is the desktop app, `blender_addon/` is the Blender importer.
+Code layout: `rpak/` reads game packages, `export/` writes GLB/glTF/CAST, `blender_addon/` is the Blender importer, and `ui/` is the desktop app:
+
+| `ui/` file | Holds |
+| --- | --- |
+| `app.py` | Main window: header, status bar, scan, event pump, session |
+| `library.py` | Library page: list, 3D preview, model/LOD loading, animation playback, export |
+| `animations.py` | The animation browser dialog |
+| `advanced.py` | Advanced page: asset explorer, string search, diagnostics |
+| `settings.py` | Settings page and applying the appearance |
+| `appearance.py` | Themes, color tokens, saved preferences, ttk styling |
+| `gloss.py` | Generated art: glossy controls, glass, and each theme's backdrop |
+| `widgets.py` | Header bar, section headings, primary button |
+| `preview.py` | OpenGL viewport |
 
 ## Known limits
 
 Some animation encodings (datapoint compression, IK, procedural motion) and blend shapes are not supported. A few skins whose material sets can't be read yet can be previewed but not exported. Blender materials approximate the game's shaders.
 
-License: AGPL-3.0-or-later. Third-party credits: `THIRD_PARTY_NOTICES.md`; bundled font licenses: `apex_asset_studio/resources/fonts/FONT_LICENSES.txt`.
+License: AGPL-3.0-or-later. Third-party credits: `THIRD_PARTY_NOTICES.md`.
