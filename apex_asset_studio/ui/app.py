@@ -17,7 +17,6 @@ from ..game_locator import find_apex_installations
 from . import appearance, widgets
 from .advanced import AdvancedPage
 from .batch import BatchExport
-from .thumbnails import Thumbnails
 from .inspector import close_material_inspector
 from .reliability import Reliability
 from .common import APP_NAME, APP_VERSION, ScanEta, friendly_error, gb, make_sortable
@@ -26,7 +25,7 @@ from .settings import SettingsPage
 from .splash import StartupSplash
 
 
-class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, Thumbnails, AdvancedPage, SettingsPage, tk.Tk):
+class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, AdvancedPage, SettingsPage, tk.Tk):
     def __init__(self, catalog_path=None, show_splash=True):
         super().__init__()
         self.withdraw()
@@ -60,7 +59,6 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, Thumbnails, Adva
         self._scan_thread: threading.Thread | None = None
         self._scanning = False
         self._init_library_state()
-        self._init_thumbnails()
         self._init_advanced_state()
 
         if splash: splash.stage('Loading settings…')
@@ -317,7 +315,6 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, Thumbnails, Adva
                     _,serial,textures,errors=event
                     if serial!=self._selection_serial: continue
                     self._preview_pixels.update(textures)
-                    if not textures: self.after(400, lambda s=serial: self._capture_thumbnail(s))  # last texture event
                     self.preview.set_textures(textures)
                     if self._animation_picker: self._animation_picker['preview'].set_textures(textures)
                     for error in errors: self._log(error)

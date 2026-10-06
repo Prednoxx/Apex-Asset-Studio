@@ -222,11 +222,6 @@ class LibraryPage:
         filters.add(widgets.tip(ttk.Checkbutton(filters, text='Search all skins', variable=self.search_all_var,
                     style='Panel.TCheckbutton', command=self._search_simple),
                     'Search every Legend and weapon at once instead of only the one picked on the left.'))
-        self.thumbs_var = tk.BooleanVar(value=self.session.get('thumbnails', True))
-        filters.add(widgets.tip(ttk.Checkbutton(filters, text='Pictures', variable=self.thumbs_var, style='Panel.TCheckbutton',
-                    command=self._apply_thumbnail_mode),
-                    'Show a picture next to each skin: your own skin images (Settings › Skin images) or a render the app '
-                    'saves the first time you open a skin.'))
         assets_body = ttk.Frame(center, style='Panel.TFrame')
         assets_body.pack(fill='both', expand=True)
         cols = ('name', 'quality', 'season', 'source', 'state')
@@ -241,8 +236,7 @@ class LibraryPage:
         self.simple_assets.pack(side='left', fill='both', expand=True)
         assets_scroll = ttk.Scrollbar(assets_body, orient='vertical', command=self.simple_assets.yview)
         assets_scroll.pack(side='right', fill='y', padx=(4, 0))
-        self.simple_assets.configure(yscrollcommand=lambda *a: (assets_scroll.set(*a), self._schedule_thumbnails()))
-        self.simple_assets.bind('<Configure>', self._schedule_thumbnails, add='+')
+        self.simple_assets.configure(yscrollcommand=assets_scroll.set)
         self.simple_assets.bind('<Configure>', self._fit_list_columns, add='+')
         self.simple_assets.on_sort = self._remember_column_sort
         self.simple_assets.bind('<<TreeviewSelect>>', self._swap_selection_tags)
@@ -370,7 +364,6 @@ class LibraryPage:
         for row, (widget, pady) in enumerate(rows):
             widget.grid(row=row, column=0, sticky='nsew', pady=pady)
         detail.columnconfigure(0, weight=1); detail.rowconfigure(1, weight=1)
-        self._apply_thumbnail_mode()
         self.simple_info.grid_remove()
 
     def refresh_simple_library(self):
@@ -441,7 +434,7 @@ class LibraryPage:
         else:
             rows = self.catalog.search_assets(text, asset_type='mdl_', limit=2500)
         self.simple_assets.delete(*self.simple_assets.get_children()); self._held_tags = {}
-        self._clear_thumbnails(); self._previewed_iid = None
+        self._previewed_iid = None
         shown = 0
         for r in rows:
             if spec[0] == 'owner':
@@ -455,13 +448,11 @@ class LibraryPage:
                 self.simple_assets.insert('', 'end', iid=f'cosmetic:{r["id"]}', tags=(str(r['quality']).lower(),) if found else ('muted',),
                                           values=(r['name'], str(r['quality']).title(), season, details.get('obtained', ''),
                                                   'Ready' if found else 'Not available'))
-                self._remember_thumb_row(f'cosmetic:{r["id"]}', r)
             else:
                 self.simple_assets.insert('', 'end', iid=f'simple:{r["id"]}',
                                           values=(r['name'] or f'Unnamed {r["guid"]}', r['type'], '', '', r['decode_status']))
         self._update_season_choices(seasons)
         self._apply_sort(remember=False)
-        self._schedule_thumbnails()
         count = shown if spec[0] == 'owner' else len(rows)
         self.list_count_var.set(f'{count:,} item' + ('' if count == 1 else 's'))
         self.preview.clear('Select an item to preview it')
@@ -621,7 +612,7 @@ class LibraryPage:
             sources,textures=cached
             if all(Path(p).exists() and (Path(p).stat().st_size,Path(p).stat().st_mtime_ns)==(size,stamp) for p,size,stamp in sources):
                 self._preview_cache.move_to_end(key);self._preview_pixels.update(textures)
-                self.preview.set_textures(textures);self.after(400,lambda:self._capture_thumbnail(serial));return
+                self.preview.set_textures(textures);return
             del self._preview_cache[key]
         def worker():
             textures={};errors=[];sources={Path(model.source)}

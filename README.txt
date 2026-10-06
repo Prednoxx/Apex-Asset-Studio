@@ -24,10 +24,6 @@ BROWSE
   highlight it in the preview (the rest go grey), or a texture to see it.
 - The 3D preview has soft lighting, a ground shadow and see-through hair and
   glass edges. The playing animation's name and length show in its corner.
-- Pictures: tick "Pictures" to see a picture next to each skin. Put store
-  cards or renders in the Skin images folder (Settings > Skin images) named
-  "<Legend or weapon> - <Skin>.png", e.g. "Wraith - Airship Assassin.png".
-  Skins without one get a render the first time you open them.
 - Clicking another skin while one is loading cancels the first load. Only the
   most detailed LOD loads at first; other LODs load when you pick them.
 - In the preview: drag to rotate, Shift-drag or right-drag to pan, scroll to
