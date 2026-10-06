@@ -11,11 +11,27 @@ from .rpak.structures import RpakHeader, compute_layout, parse_segments, parse_p
 from .rpak.patch import reconstruct
 
 
+def default_cache_dir():
+    return Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'ApexAssetStudio' / 'decoded_cache'
+
+
+# The app sets these from the user's Storage settings; every repository uses them unless told otherwise.
+SETTINGS = {'cache_dir': None, 'cache_budget': 12 * 1024**3}
+
+
+def cache_files(folder):
+    """Decoded-package cache entries (data files plus their provenance JSON) in a cache folder."""
+    folder = Path(folder)
+    if not folder.is_dir(): return []
+    return [p for p in folder.iterdir() if p.is_file() and (p.suffix in ('.decoded', '.tmp') or p.name.endswith('.patched.json'))]
+
+
 class AssetRepository:
-    def __init__(self, catalog, root, cache=None, stop_event=None, cache_budget=12*1024**3):
+    def __init__(self, catalog, root, cache=None, stop_event=None, cache_budget=None):
         self.catalog = catalog
         self.root = Path(root).resolve()
-        self.cache = Path(cache) if cache else Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'ApexAssetStudio' / 'decoded_cache'
+        self.cache = Path(cache) if cache else Path(SETTINGS['cache_dir'] or default_cache_dir())
+        cache_budget = cache_budget if cache_budget is not None else SETTINGS['cache_budget']
         self.cache.mkdir(parents=True, exist_ok=True)
         self.opened = {}
         self.raw_opened = {}

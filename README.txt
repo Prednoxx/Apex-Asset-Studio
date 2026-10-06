@@ -12,6 +12,10 @@ GETTING STARTED
 BROWSE
 - Pick a Legend or weapon on the left, then a skin in the list.
 - Click a column heading to sort (Name, Rarity, Model). Ctrl+F searches.
+- Filter by rarity, hide skins that can't be exported yet, or tick "Search all
+  skins" to search every Legend and weapon at once.
+- Clicking another skin while one is loading cancels the first load. Only the
+  most detailed LOD loads at first; other LODs load when you pick them.
 - In the preview: drag to rotate, Shift-drag or right-drag to pan, scroll to
   zoom, R to reset the view.
 
@@ -44,7 +48,8 @@ LIMITS
   procedural motion), blend shapes, and a few skins whose materials can't be
   read (these can be previewed but not exported). Blender materials approximate
   the game's look.
-- Decoded game packages are cached in %LOCALAPPDATA%\ApexAssetStudio\decoded_cache
-  (up to about 12 GB). Deleting that folder is safe; it is rebuilt when needed.
+- Unpacked game files are cached (12 GB limit by default). Settings > Storage
+  shows the size and lets you change the limit, clear the cache or move it to
+  another drive. Clearing is safe; it refills as needed.
 
 License: AGPL-3.0-or-later. See THIRD_PARTY_NOTICES.md.

@@ -32,3 +32,9 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch Apex Asset Studio"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+; Caches are rebuilt on demand, so remove them; the library index and settings stay unless the user deletes them.
+Type: filesandordirs; Name: "{localappdata}\ApexAssetStudio\decoded_cache"
+Type: filesandordirs; Name: "{localappdata}\ApexAssetStudio\preview_textures_v2"
+Type: filesandordirs; Name: "{localappdata}\ApexAssetStudio\preview_textures"

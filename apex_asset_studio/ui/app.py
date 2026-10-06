@@ -18,6 +18,7 @@ from ..game_locator import find_apex_installations
 from ..rpak.rtech import OodleRuntime
 from ..repository import AssetRepository
 from ..rpak.model import decode_model
+from ..rpak.oodle_stream import ScanCancelled
 from ..rpak.animation import decode_animation
 from ..rpak.material import safe_name, decode_material
 from ..rpak.texture import extract_texture
@@ -92,6 +93,7 @@ class ApexAssetStudioApp(tk.Tk):
         self.lod_var = tk.StringVar()
         self.session_path = self.appearance_path.with_name('session.json')
         self.session = self._load_session()
+        self._apply_storage_settings()
         self.export_path_var = tk.StringVar(value=self.session.get('export_path') or str(self._default_export_folder()))
         self.all_lods_var = tk.BooleanVar(value=True)
         self._busy = False
@@ -129,6 +131,8 @@ class ApexAssetStudioApp(tk.Tk):
         if splash: splash.stage('Loading library…')
         self.refresh_all_views()
         for tree in (self.simple_assets, self.asset_table, self.string_table): self._make_sortable(tree)
+        if not self.catalog.index_outdated:  # one-time link table for libraries scanned by older versions
+            threading.Thread(target=self.catalog.ensure_animation_links, daemon=True).start()
         self._restore_session()
         if splash: splash.finish(self)
         else: self.deiconify()
@@ -168,6 +172,7 @@ class ApexAssetStudioApp(tk.Tk):
         self.status_clock = ttk.Label(status, textvariable=self.clock_var, style='Clock.TLabel'); self.status_clock.pack(side='right', padx=(16, 0))
         self._tick_clock()
         self.progress = ttk.Progressbar(status, variable=self.progress_var, maximum=100, length=260)
+        self.busy_bar = ttk.Progressbar(status, mode='indeterminate', length=120)
         self._status_frame = status
         ttk.Frame(self, style='Hairline.TFrame', height=1).pack(side='bottom', fill='x')
 
@@ -410,6 +415,17 @@ class ApexAssetStudioApp(tk.Tk):
         entry.bind('<Escape>', lambda _e: self.simple_search_var.set(''))
         self._placeholder(entry, self.simple_search_var, 'Search this list')
         self.simple_search_var.trace_add('write', lambda *_: self._debounce_search())
+        filters = ttk.Frame(center, style='Panel.TFrame'); filters.pack(fill='x', pady=(0, 8), padx=(0, 8))
+        self.rarity_filter_var = tk.StringVar(value='All rarities')
+        self.hide_unavailable_var = tk.BooleanVar(value=self.session.get('hide_unavailable', False))
+        self.search_all_var = tk.BooleanVar(value=False)
+        rarity = ttk.Combobox(filters, textvariable=self.rarity_filter_var, state='readonly', width=13,
+                              values=('All rarities', 'Common', 'Rare', 'Epic', 'Legendary', 'Mythic'))
+        rarity.pack(side='left'); rarity.bind('<<ComboboxSelected>>', lambda _e: self._search_simple())
+        ttk.Checkbutton(filters, text='Hide unavailable', variable=self.hide_unavailable_var, style='Panel.TCheckbutton',
+                        command=self._search_simple).pack(side='left', padx=(12, 0))
+        ttk.Checkbutton(filters, text='Search all skins', variable=self.search_all_var, style='Panel.TCheckbutton',
+                        command=self._search_simple).pack(side='left', padx=(12, 0))
         assets_body = ttk.Frame(center, style='Panel.TFrame')
         assets_body.pack(fill='both', expand=True)
         cols = ('name', 'quality', 'state')
@@ -562,6 +578,25 @@ class ApexAssetStudioApp(tk.Tk):
         self.detect_btn.pack(side='left', padx=(8, 0))
         self.browse_btn = ttk.Button(game, text='Browse…', command=self._browse_game)
         self.browse_btn.pack(side='left', padx=(6, 0))
+
+        storage = section('Storage', 'Unpacked game files are cached so models open quickly. The cache is safe to clear; it refills as needed.')
+        self.storage_text = tk.StringVar(value='Calculating…')
+        ttk.Label(storage, textvariable=self.storage_text).pack(anchor='w')
+        self.cache_dir_text = tk.StringVar(value=str(self._cache_dir()))
+        ttk.Label(storage, textvariable=self.cache_dir_text, style='Muted.TLabel').pack(anchor='w', pady=(2, 10))
+        limits = ttk.Frame(storage); limits.pack(anchor='w')
+        ttk.Label(limits, text='Cache limit', width=16).pack(side='left')
+        self.cache_limit_var = tk.StringVar(value=f"{self.session.get('cache_budget_gb', 12)} GB")
+        limit = ttk.Combobox(limits, textvariable=self.cache_limit_var, state='readonly', width=8,
+                             values=tuple(f'{n} GB' for n in (4, 8, 12, 24, 48)))
+        limit.pack(side='left'); limit.bind('<<ComboboxSelected>>', lambda _e: self._set_cache_limit())
+        ttk.Label(limits, text='Older files are removed automatically above this size.', style='Muted.TLabel').pack(side='left', padx=(12, 0))
+        cache_buttons = ttk.Frame(storage); cache_buttons.pack(anchor='w', pady=(12, 0))
+        self.clear_cache_btn = ttk.Button(cache_buttons, text='Clear cache', command=self._clear_cache)
+        self.clear_cache_btn.pack(side='left')
+        ttk.Button(cache_buttons, text='Open folder', style='Ghost.TButton', command=lambda: self._open_folder(self._cache_dir())).pack(side='left', padx=(8, 0))
+        ttk.Button(cache_buttons, text='Move cache…', style='Ghost.TButton', command=self._move_cache).pack(side='left', padx=(4, 0))
+        self.settings_canvas.bind('<Map>', lambda _e: self._measure_storage(), add='+')
 
         access = section('Accessibility', 'Text size applies everywhere, including lists and the startup screen.')
         self.text_scale_var = tk.DoubleVar(value=self.appearance['text_scale'])
@@ -881,6 +916,8 @@ class ApexAssetStudioApp(tk.Tk):
         self.type_filter.bind('<<ComboboxSelected>>', lambda _e: self.search_advanced())
         ttk.Button(top, text='Search', command=self.search_advanced).pack(side='left')
         ttk.Button(top, text='Clear', style='Ghost.TButton', command=self._clear_advanced_search).pack(side='left', padx=(4, 0))
+        self.advanced_more_btn = ttk.Button(top, text='Show more', style='Ghost.TButton', command=lambda: self.search_advanced(more=True))
+        self.advanced_more_btn.pack(side='right'); self.advanced_more_btn.state(['disabled'])
         ttk.Label(top, textvariable=self.advanced_count_var, style='Muted.TLabel').pack(side='right', padx=(12, 0))
 
         asset_pane = ttk.Panedwindow(assets_tab, orient='vertical')
@@ -926,6 +963,8 @@ class ApexAssetStudioApp(tk.Tk):
         self._placeholder(string_entry, self.string_search_var, 'Search readable strings inside every RPak')
         ttk.Button(string_top, text='Search', command=self.search_strings).pack(side='left')
         ttk.Button(string_top, text='Clear', style='Ghost.TButton', command=self._clear_string_search).pack(side='left', padx=(4, 0))
+        self.string_more_btn = ttk.Button(string_top, text='Show more', style='Ghost.TButton', command=lambda: self.search_strings(more=True))
+        self.string_more_btn.pack(side='right'); self.string_more_btn.state(['disabled'])
 
         string_frame = ttk.Frame(strings_tab, style='Panel.TFrame')
         string_frame.pack(fill='both', expand=True)
@@ -1095,12 +1134,15 @@ class ApexAssetStudioApp(tk.Tk):
                     self._log(event[1])
                 elif event[0] == 'model_ready':
                     _,serial,model,warnings = event
-                    self._set_busy(False)
                     if serial != self._selection_serial:
                         continue
+                    self._set_loading(False)
                     self._model = model
-                    self.lod_choice.configure(values=[f'LOD {x}' for x in sorted(model.lods)],state='readonly')
-                    level = min(model.lods)
+                    levels = model.lod_levels or sorted(model.lods)
+                    self.lod_choice.configure(values=[f'LOD {x}' for x in levels],state='readonly')
+                    wanted = getattr(self, '_wanted_lod', None)
+                    level = wanted if wanted in model.lods else min(model.lods)
+                    self._wanted_lod = None
                     self.lod_var.set(f'LOD {level}')
                     self._render_model()
                     self.export_btn.state(['!disabled'] if model.material_family_resolved else ['disabled'])
@@ -1109,7 +1151,7 @@ class ApexAssetStudioApp(tk.Tk):
                     total = sum(len(m.positions) for m in model.lods[min(model.lods)])
                     title = self._cosmetic['name'] if self._cosmetic else Path(model.name).stem
                     owner = f'{self._cosmetic["owner_name"]}  ·  {self.model_choice_var.get()}  ·  ' if self._cosmetic else ''
-                    self._set_inspector(title, f'{owner}{total:,} vtx  ·  {len(model.bones)} bones  ·  {len(model.lods)} lod')
+                    self._set_inspector(title, f'{owner}{total:,} vtx  ·  {len(model.bones)} bones  ·  {len(model.lod_levels or model.lods)} lod')
                     self._set_simple_info('\n'.join(warnings+model.warnings) + ('' if model.material_family_resolved else
                         "\nThis skin's materials can't be read yet, so it can't be exported. You can still preview it."))
                     self.status_var.set('Model loaded.' if model.material_family_resolved else "Model loaded. This skin can't be exported yet.")
@@ -1130,11 +1172,24 @@ class ApexAssetStudioApp(tk.Tk):
                     _,serial,error = event
                     self._set_busy(False)
                     if serial != self._selection_serial: continue
+                    if getattr(self, '_loading', False): self._set_loading(False)
                     if self._model: self._render_model()
                     else: self.preview.clear('Preview unavailable')
                     self._set_simple_info(friendly_error(error))
                     self.status_var.set(friendly_error(error))
                     self._log(error)
+                elif event[0] == 'storage':
+                    self._show_storage(*event[1:])
+                elif event[0] == 'cache_cleared':
+                    _, freed, skipped = event
+                    self.clear_cache_btn.state(['!disabled'])
+                    note = f' {skipped} file(s) in use were kept.' if skipped else ''
+                    self.status_var.set(f'Cache cleared: {self._gb(freed)} freed.{note}')
+                    self._preview_cache.clear(); self._measure_storage()
+                elif event[0] == 'advanced_results':
+                    self._show_advanced_results(*event[1:])
+                elif event[0] == 'string_results':
+                    self._show_string_results(*event[1:])
                 elif event[0] == 'work_progress':
                     self.status_var.set(event[1])
                 elif event[0] in ('animation_ready','animation_error'):
@@ -1164,6 +1219,10 @@ class ApexAssetStudioApp(tk.Tk):
                     self._log(f'Export manifest: {path}')
         except queue.Empty:
             pass
+        except Exception as exc:  # never let one bad event stop the event pump
+            import traceback
+            self._log(''.join(traceback.format_exception(exc)))
+            self.status_var.set(friendly_error(f'{type(exc).__name__}: {exc}'))
         self.after(100, self._poll_events)
 
     def refresh_all_views(self):
@@ -1226,24 +1285,34 @@ class ApexAssetStudioApp(tk.Tk):
         spec = self._simple_sections.get(iid)
         if not spec or self._scanning or self._busy:
             return
+        if getattr(self, '_load_stop', None): self._load_stop.set()
+        if getattr(self, '_loading', False): self._set_loading(False)
         label = self.simple_tree.item(iid, 'text')
-        self.simple_header_var.set(label.upper() if appearance.fx()['upper'] else label)
         text = self.simple_search_var.get().strip()
+        everywhere = bool(text) and self.search_all_var.get() and spec[0] == 'owner'
+        if everywhere: label = f'Results for “{text}”'
+        self.simple_header_var.set(label.upper() if appearance.fx()['upper'] else label)
+        rarity = self.rarity_filter_var.get().lower(); hide = self.hide_unavailable_var.get()
+        self.session['hide_unavailable'] = hide
         if spec[0] == 'owner':
-            rows = self.catalog.search_cosmetics(text, owner_guid=spec[1])
+            rows = self.catalog.search_cosmetics(text, owner_guid=None if everywhere else spec[1])
         else:
             rows = self.catalog.search_assets(text, asset_type='mdl_', limit=2500)
         self.simple_assets.delete(*self.simple_assets.get_children()); self._held_tags = {}
+        shown = 0
         for r in rows:
             if spec[0] == 'owner':
                 models = json.loads(r['details']).get('models', [])
                 found = any(m.get('pak_name') for m in models)
+                if (rarity != 'all rarities' and str(r['quality']).lower() != rarity) or (hide and not found): continue
+                shown += 1
                 self.simple_assets.insert('', 'end', iid=f'cosmetic:{r["id"]}', tags=(str(r['quality']).lower(),) if found else ('muted',),
                                           values=(r['name'], r['quality'], 'Ready' if found else 'Not available'))
             else:
                 self.simple_assets.insert('', 'end', iid=f'simple:{r["id"]}',
                                           values=(r['name'] or f'Unnamed {r["guid"]}', r['type'], r['decode_status']))
-        self.list_count_var.set(f'{len(rows):,} item' + ('' if len(rows) == 1 else 's'))
+        count = shown if spec[0] == 'owner' else len(rows)
+        self.list_count_var.set(f'{count:,} item' + ('' if count == 1 else 's'))
         self.preview.clear('Select an item to preview it')
         self._set_inspector('Nothing selected', 'Pick an item from the list.')
         self._set_simple_info('')
@@ -1337,13 +1406,36 @@ class ApexAssetStudioApp(tk.Tk):
         if self.type_filter_var.get() not in values:
             self.type_filter_var.set("All types")
 
-    def search_advanced(self):
+    PAGE = 2000
+
+    def search_advanced(self, more=False):
+        """Runs off the UI thread; results arrive a page at a time ("Show more" loads the next page)."""
         text = self.search_var.get().strip()
         chosen = self.type_filter_var.get()
         asset_type = None if chosen == "All types" else chosen
-        rows = self.catalog.search_assets(text, asset_type=asset_type, limit=3000)
-        self.asset_table.delete(*self.asset_table.get_children())
+        if not more:
+            self.asset_table.delete(*self.asset_table.get_children())
+            self._advanced_offset = 0
+            self._set_asset_detail('')
+            self.advanced_open_btn.state(["disabled"]); self.advanced_preview_btn.state(['disabled'])
+        self._advanced_serial = serial = getattr(self, '_advanced_serial', 0) + 1
+        offset = self._advanced_offset
+        self.advanced_count_var.set('Searching…'); self.advanced_more_btn.state(['disabled'])
+        def worker():
+            try:
+                rows = self.catalog.search_assets(text, asset_type=asset_type, limit=self.PAGE, offset=offset)
+                total = offset + len(rows) if len(rows) < self.PAGE else self.catalog.count_assets(text, asset_type)
+                self.events.put(('advanced_results', serial, rows, total))
+            except Exception as exc:
+                self.events.put(('advanced_results', serial, [], f'{type(exc).__name__}: {exc}'))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_advanced_results(self, serial, rows, total):
+        if serial != getattr(self, '_advanced_serial', 0): return
+        if isinstance(total, str):
+            self.advanced_count_var.set('Search failed'); self._log(total); return
         for r in rows:
+            if self.asset_table.exists(f"asset:{r['id']}"): continue
             self.asset_table.insert(
                 "", "end", iid=f"asset:{r['id']}",
                 values=(
@@ -1351,26 +1443,43 @@ class ApexAssetStudioApp(tk.Tk):
                     r["patch_count"], r["compression"], r["starpak_offset"] or "",
                 ),
             )
-        self.advanced_count_var.set(f"{len(rows):,} shown")
-        self._set_asset_detail('')
-        self.advanced_open_btn.state(["disabled"])
-        self.advanced_preview_btn.state(['disabled'])
+        self._advanced_offset += len(rows)
+        shown = self._advanced_offset
+        capped = total > self.catalog.COUNT_CAP
+        self.advanced_count_var.set(f"{shown:,} of {self.catalog.COUNT_CAP:,}+" if capped else f"{shown:,} of {total:,}")
+        self.advanced_more_btn.state(['!disabled'] if shown < total else ['disabled'])
 
     def _clear_advanced_search(self):
         self.search_var.set("")
         self.type_filter_var.set("All types")
         self.search_advanced()
 
-    def search_strings(self):
+    def search_strings(self, more=False):
         query = self.string_search_var.get().strip()
-        self.string_table.delete(*self.string_table.get_children())
+        if not more:
+            self.string_table.delete(*self.string_table.get_children()); self._string_offset = 0
         if not query:
-            self.status_var.set("Enter a string search term.")
+            self.status_var.set("Type something to search for.")
             return
-        rows = self.catalog.search_strings(query, limit=3000)
+        self._string_serial = serial = getattr(self, '_string_serial', 0) + 1
+        offset = self._string_offset
+        self.status_var.set('Searching strings…'); self.string_more_btn.state(['disabled'])
+        def worker():
+            try: rows = self.catalog.search_strings(query, limit=self.PAGE, offset=offset)
+            except Exception as exc: rows = f'{type(exc).__name__}: {exc}'
+            self.events.put(('string_results', serial, rows))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_string_results(self, serial, rows):
+        if serial != getattr(self, '_string_serial', 0): return
+        if isinstance(rows, str):
+            self.status_var.set('String search failed.'); self._log(rows); return
         for r in rows:
             self.string_table.insert("", "end", values=(r["value"], r["filename"], r["compression"]))
-        self.status_var.set(f"Raw string search: {len(rows):,} results")
+        self._string_offset += len(rows)
+        more = len(rows) == self.PAGE
+        self.string_more_btn.state(['!disabled'] if more else ['disabled'])
+        self.status_var.set(f"{self._string_offset:,}{'+' if more else ''} strings found")
 
     def _clear_string_search(self):
         self.string_search_var.set("")
@@ -1519,31 +1628,58 @@ class ApexAssetStudioApp(tk.Tk):
         preferred = root/'paks'/'Win64'/choice['pak_name'] if choice.get('pak_name') else None
         self._start_model_load(choice['guid'],preferred,details.get('skin_family'))
 
-    def _start_model_load(self,guid,preferred=None,family=None):
+    def _start_model_load(self,guid,preferred=None,family=None,full=False,keep_view=False):
+        """Load a model in the background. Picking another item cancels this load; the list stays usable.
+        Only the most detailed LOD is decoded for preview unless `full` (other LODs load when selected)."""
         if self._busy or self._scanning: return
-        self._model = None
-        self._playing=False; self._animation=None; self._animation_serial+=1
-        self._preview_pixels={}
-        self.animation_name.set(''); self.play_btn.configure(text='Play')
-        self._set_busy(True)
+        if getattr(self, '_load_stop', None): self._load_stop.set()
+        stop = self._load_stop = threading.Event()
+        self._model_source = (guid, preferred, family)
+        if not keep_view:
+            self._model = None
+            self._playing=False; self._animation=None; self._animation_serial+=1
+            self._preview_pixels={}
+            self.animation_name.set(''); self.play_btn.configure(text='Play')
+            self.preview.clear('Loading model…')
+        self._set_loading(True)
         serial = self._selection_serial
         root = self.game_path.get()
-        self.preview.clear('Loading model…')
-        self.status_var.set('Loading model…')
+        self.status_var.set('Loading all detail levels…' if full else 'Loading model…')
         def worker():
             try:
                 with AssetRepository(self.catalog,root) as repo:
                     archive,asset = repo.asset(guid,preferred)
-                    model = decode_model(archive,asset,family,allow_unresolved_family=True)
+                    model = decode_model(archive,asset,family,stop=stop,allow_unresolved_family=True,first_lod_only=not full)
                     warnings = sorted(repo.warnings)
-                self.events.put(('model_ready',serial,model,warnings))
+                if not stop.is_set(): self.events.put(('model_ready',serial,model,warnings))
+            except ScanCancelled:
+                pass
             except Exception as exc:
-                self.events.put(('work_error',serial,f'{type(exc).__name__}: {exc}'))
+                if not stop.is_set(): self.events.put(('work_error',serial,f'{type(exc).__name__}: {exc}'))
         threading.Thread(target=worker,daemon=True).start()
+
+    def _set_loading(self, loading):
+        self._loading = loading
+        if loading:
+            for widget in (self.export_btn, self.animations_btn, self.play_btn, self.frame_slider,
+                           self.animation_export_btn, self.include_animation_check):
+                widget.state(['disabled'])
+            self.model_choice.configure(state='disabled'); self.lod_choice.configure(state='disabled')
+            if not self.busy_bar.winfo_ismapped(): self.busy_bar.pack(side='right', padx=(12, 0)); self.busy_bar.start(12)
+        else:
+            self.busy_bar.stop(); self.busy_bar.pack_forget()
+            self.model_choice.configure(state='readonly' if self._model_choices and self._cosmetic else 'disabled')
 
     def _render_model(self):
         if not self._model: return
         lod = int(self.lod_var.get().split()[-1])
+        if lod not in self._model.lods:  # first-LOD preview: decode the rest now, then show the chosen level
+            if self._model.partial and getattr(self, '_model_source', None):
+                self._wanted_lod = lod
+                self._start_model_load(*self._model_source, full=True, keep_view=True)
+            else:
+                lod = min(self._model.lods); self.lod_var.set(f'LOD {lod}'); self.preview.set_model(self._model, lod)
+            return
         self.preview.set_model(self._model,lod)
         if self._animation: self.preview.set_pose(self._animation,int(self.frame_var.get()))
 
@@ -1835,9 +1971,16 @@ class ApexAssetStudioApp(tk.Tk):
         self._blender_note = '' if {'.glb', '.gltf'} & set(formats) else ' (CAST only: the Blender add-on needs GLB or glTF.)'
         self._playing=False; self.play_btn.configure(text='Play')
         self._set_busy(True)
+        source = getattr(self, '_model_source', None)
         def worker():
             try:
-                path,manifest = export_package(model,self.catalog,root,destination,label,cosmetic,all_lods,
+                export_model = model
+                if all_lods and model.partial and source:
+                    self.events.put(('work_progress', 'Decoding all detail levels…'))
+                    with AssetRepository(self.catalog, root) as repo:
+                        archive, asset = repo.asset(source[0], source[1])
+                        export_model = decode_model(archive, asset, source[2], allow_unresolved_family=True)
+                path,manifest = export_package(export_model,self.catalog,root,destination,label,cosmetic,all_lods,
                     lambda text:self.events.put(('work_progress',text)),overwrite=overwrite,animation=animation,formats=formats)
                 self.events.put(('export_ready',path,manifest))
             except Exception as exc:
@@ -1881,6 +2024,7 @@ class ApexAssetStudioApp(tk.Tk):
 
     def _save_session(self):
         tab = next((n for n, (_i, label) in self.nav_labels.items() if n == self.tabs.select()), None) if hasattr(self, 'nav_labels') else None
+        if hasattr(self, 'hide_unavailable_var'): self.session['hide_unavailable'] = self.hide_unavailable_var.get()
         state = dict(self.session, geometry=self.geometry() if self.state() == 'normal' else self.session.get('geometry'),
                      zoomed=self.state() == 'zoomed', export_path=self.export_path_var.get(),
                      page=self.nav_labels[tab][1] if tab else 'Library',
@@ -1907,6 +2051,92 @@ class ApexAssetStudioApp(tk.Tk):
     def _close(self):
         self._save_session()
         self.destroy()
+
+    # ---- storage ---------------------------------------------------------------------------------
+    def _cache_dir(self):
+        from ..repository import default_cache_dir
+        return Path(self.session.get('cache_dir') or default_cache_dir())
+
+    def _apply_storage_settings(self):
+        from .. import repository
+        repository.SETTINGS['cache_dir'] = self.session.get('cache_dir') or None
+        repository.SETTINGS['cache_budget'] = int(self.session.get('cache_budget_gb', 12)) * 1024**3
+
+    def _preview_cache_dirs(self):
+        base = self.appearance_path.parent
+        return [base / 'preview_textures_v2', base / 'preview_textures']
+
+    @staticmethod
+    def _folder_size(folder):
+        total = 0
+        for root, _dirs, files in os.walk(folder):
+            for name in files:
+                try: total += os.path.getsize(os.path.join(root, name))
+                except OSError: pass
+        return total
+
+    @staticmethod
+    def _gb(size):
+        return f'{size / 1024**3:.1f} GB' if size >= 1024**3 else f'{size / 1024**2:.0f} MB'
+
+    def _measure_storage(self):
+        if getattr(self, '_measuring', False): return
+        self._measuring = True
+        catalog_file = Path(self.catalog.db_path)
+        def worker():
+            decoded = self._folder_size(self._cache_dir())
+            previews = sum(self._folder_size(d) for d in self._preview_cache_dirs())
+            library = sum(p.stat().st_size for p in catalog_file.parent.glob(catalog_file.name + '*') if p.is_file())
+            self.events.put(('storage', decoded, previews, library))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_storage(self, decoded, previews, library):
+        self._measuring = False
+        limit = int(self.session.get('cache_budget_gb', 12))
+        self.storage_text.set(f'Game file cache {self._gb(decoded)} of {limit} GB   ·   Preview textures {self._gb(previews)}   ·   Library index {self._gb(library)}')
+
+    def _set_cache_limit(self):
+        self.session['cache_budget_gb'] = int(self.cache_limit_var.get().split()[0])
+        self._apply_storage_settings(); self._save_session(); self._measure_storage()
+
+    def _clear_cache(self):
+        if self._busy or self._scanning or getattr(self, '_loading', False):
+            self.status_var.set('Wait for the current scan, load or export to finish, then clear the cache.'); return
+        if not messagebox.askyesno('Clear cache?', 'Delete the cached game files and preview textures?\n\n'
+                                   'Nothing is lost: they are rebuilt from the game when needed, so the next model you open may load more slowly.', parent=self):
+            return
+        from ..repository import cache_files
+        self.clear_cache_btn.state(['disabled']); self.status_var.set('Clearing cache…')
+        def worker():
+            freed = 0; skipped = 0
+            for path in cache_files(self._cache_dir()):
+                try: size = path.stat().st_size; path.unlink(); freed += size
+                except OSError: skipped += 1
+            import shutil
+            for folder in self._preview_cache_dirs():
+                if folder.is_dir():
+                    size = self._folder_size(folder)
+                    shutil.rmtree(folder, ignore_errors=True)
+                    freed += size - (self._folder_size(folder) if folder.exists() else 0)
+            self.events.put(('cache_cleared', freed, skipped))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _move_cache(self):
+        folder = filedialog.askdirectory(title='Choose a folder for the game file cache', initialdir=str(self._cache_dir().parent))
+        if not folder: return
+        target = Path(folder) / 'ApexAssetStudio cache' if Path(folder) != self._cache_dir() else Path(folder)
+        try: target.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self.status_var.set(friendly_error(str(exc))); return
+        old = self._cache_dir()
+        self.session['cache_dir'] = str(target); self._apply_storage_settings(); self._save_session()
+        self.cache_dir_text.set(str(target)); self._measure_storage()
+        self.status_var.set(f'Cache moved to {target}. Files in the old location ({old}) can be cleared or deleted.')
+
+    def _open_folder(self, folder):
+        folder = Path(folder); folder.mkdir(parents=True, exist_ok=True)
+        if os.name == 'nt': os.startfile(folder)
+        else: subprocess.Popen(['xdg-open', str(folder)])
 
     def _open_last_export(self):
         folder = getattr(self, '_last_export', None)

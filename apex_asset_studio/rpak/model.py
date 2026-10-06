@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 import math
 import struct
+import numpy as np
 from .pages import PageReader
 from .streaming import StreamingReader
 from .rtech import OodleRuntime
@@ -65,6 +66,8 @@ class Model:
     rig_guids: list
     warnings: list
     material_family_resolved: bool = True
+    lod_levels: list = field(default_factory=list)  # every LOD the model declares, decoded or not
+    partial: bool = False                            # True when only the first LOD was decoded (fast preview)
 
 
 def unpack_normal(value):
@@ -109,6 +112,171 @@ def simple_bone_influences(w0, w1, packed_bones):
     return [((packed_bones >> (i * 8)) & 255, weight) for i, weight in enumerate(weights)]
 
 
+def decode_vertices_reference(mesh, g, base, vc, stride, vf, flags, states, extra_base, es):
+    """Original one-vertex-at-a-time decoder, kept as the reference the fast path is tested against."""
+    for v in range(vc):
+        p = base + v * stride
+        start = p
+        fmt = vf & 3
+        if fmt == 1: position = g.unpack('<3f', p); p += 12
+        elif fmt == 2:
+            packed = g.unpack('<Q', p)[0]; p += 8
+            position = ((packed & 0x1fffff)/1024-1024,
+                        ((packed >> 21) & 0x1fffff)/1024-1024,
+                        ((packed >> 42) & 0x3fffff)/1024-2048)
+        else: raise ValueError(f'vertex position encoding {fmt} unsupported')
+        influences = []
+        weight_format = (vf >> 12) & 7
+        if weight_format != 5: raise ValueError(f'vertex weight encoding {weight_format} unsupported')
+        w0, w1, packed_bones = g.unpack('<HHI', p); p += 8
+        if flags & 0x4000:
+            first, last = packed_bones & 1023, (packed_bones >> 10) & 1023
+            n = packed_bones >> 24
+            if n > 15: raise ValueError('too many extended bone weights')
+            source = [(first, w0)]
+            remaining = 32767 - w0
+            for middle in range(n - 1):
+                idx = w1 + middle
+                if idx * 4 + 4 > es: raise ValueError('extra weight index outside mesh')
+                weight, bone = g.unpack('<HH', extra_base + idx * 4)
+                source.append((bone, weight)); remaining -= weight
+            if n: source.append((last, remaining))
+        else:
+            source = simple_bone_influences(w0, w1, packed_bones)
+        for bone, weight in source:
+            if weight < 0 or weight > 32767: raise ValueError('invalid bone influence')
+            if not weight: continue
+            if bone >= len(states): raise ValueError('invalid bone influence')
+            influences.append((states[bone], weight / 32767))
+        if abs(sum(w for _, w in influences)-1) > .001: raise ValueError('weights do not sum to one')
+        if (vf >> 8) & 15 != 10: raise ValueError('normal encoding unsupported')
+        packed = g.unpack('<I', p)[0]; p += 4
+        mesh.packed_normals.append(packed)
+        mesh.normals.append(unpack_normal(packed))
+        mesh.tangents.append(unpack_tangent(packed,mesh.normals[-1]))
+        if vf & 0x10:
+            mesh.colors.append(g.unpack('<4B', p)); p += 4
+        uv_sets = []
+        for n in mesh.uv_indices:
+            uv_sets.append(g.unpack('<2f', p)); p += 8
+        if p - start != stride: raise ValueError(f'unhandled vertex fields: read {p-start} of {stride}')
+        if not all(math.isfinite(x) for x in (*position, *(x for uv in uv_sets for x in uv))): raise ValueError('non-finite vertex')
+        mesh.positions.append(position); mesh.uvs.append(uv_sets); mesh.weights.append(influences)
+
+
+def unpack_normals(values):
+    """Vectorised unpack_normal for a uint32 array; returns an (n, 3) float64 array."""
+    v = values.astype(np.int64)
+    major = (v >> 29) & 3
+    if (major == 3).any(): raise ValueError('invalid packed normal major axis')
+    n = np.zeros((len(v), 3))
+    rows = np.arange(len(v))
+    n[rows, major] = np.where(v & (1 << 28), -255.0, 255.0)
+    n[rows, (0x124 >> (2 * major + 2)) & 3] = ((v >> 19) & 511) - 256
+    n[rows, (0x124 >> (2 * major + 4)) & 3] = ((v >> 10) & 511) - 256
+    return n / np.sqrt((n * n).sum(axis=1))[:, None]
+
+
+def unpack_tangents(values, normals):
+    """Vectorised unpack_tangent; returns an (n, 4) float64 array (xyz + handedness)."""
+    v = values.astype(np.int64)
+    x, y, z = normals[:, 0], normals[:, 1], normals[:, 2]
+    flip = z < -0.999899983
+    with np.errstate(divide='ignore', invalid='ignore'):
+        k = np.where(flip, 0.0, -1 / (1 + z))
+    a = np.stack((np.where(flip, 0.0, 1 + k * x * x), np.where(flip, -1.0, k * x * y), np.where(flip, 0.0, -x)), axis=1)
+    b = np.stack((np.where(flip, -1.0, k * x * y), np.where(flip, 0.0, 1 + k * y * y), np.where(flip, 0.0, -y)), axis=1)
+    angle = (v & 1023) * 0.00614192151
+    t = a * np.cos(angle)[:, None] + b * np.sin(angle)[:, None]
+    t = t / np.sqrt((t * t).sum(axis=1))[:, None]
+    w = np.where(v & 0x80000000, -1.0, 1.0)
+    return np.column_stack((t, w))
+
+
+def decode_vertices(mesh, g, base, vc, stride, vf, flags, states, extra_base, es):
+    """Decode a whole vertex buffer at once with numpy (same results as decode_vertices_reference)."""
+    if base < 0 or base + vc * stride > len(g.data): raise ValueError('model read outside buffer')
+    raw = np.frombuffer(g.data, dtype=np.uint8, count=vc * stride, offset=base).reshape(vc, stride)
+    def field(start, size, dtype):
+        return np.ascontiguousarray(raw[:, start:start + size]).view(dtype)
+    p = 0; fmt = vf & 3
+    if fmt == 1:
+        positions = field(0, 12, '<f4').reshape(vc, 3).astype(np.float64); p = 12
+    elif fmt == 2:
+        packed = field(0, 8, '<u8').ravel()
+        positions = np.column_stack(((packed & 0x1fffff) / 1024 - 1024, ((packed >> 21) & 0x1fffff) / 1024 - 1024,
+                                     ((packed >> 42) & 0x3fffff) / 1024 - 2048)); p = 8
+    else: raise ValueError(f'vertex position encoding {fmt} unsupported')
+    if (vf >> 12) & 7 != 5: raise ValueError(f'vertex weight encoding {(vf >> 12) & 7} unsupported')
+    w0 = field(p, 2, '<u2').ravel().astype(np.int64); w1 = field(p + 2, 2, '<u2').ravel().astype(np.int64)
+    packed_bones = field(p + 4, 4, '<u4').ravel().astype(np.int64); p += 8
+    state_count = len(states)
+    if flags & 0x4000:
+        extra_count = max(0, min(es // 4, (len(g.data) - extra_base) // 4))
+        extras = np.frombuffer(g.data, dtype='<u2', count=extra_count * 2, offset=extra_base).reshape(-1, 2).tolist() if extra_count else []
+        weights = []
+        for a, b, pb in zip(w0.tolist(), w1.tolist(), packed_bones.tolist()):
+            first, last, n = pb & 1023, (pb >> 10) & 1023, pb >> 24
+            if n > 15: raise ValueError('too many extended bone weights')
+            source = [(first, a)]; remaining = 32767 - a
+            for middle in range(n - 1):
+                idx = b + middle
+                if idx >= extra_count: raise ValueError('extra weight index outside mesh')
+                weight, bone = extras[idx]
+                source.append((bone, weight)); remaining -= weight
+            if n: source.append((last, remaining))
+            influences = []
+            for bone, weight in source:
+                if weight < 0 or weight > 32767: raise ValueError('invalid bone influence')
+                if not weight: continue
+                if bone >= state_count: raise ValueError('invalid bone influence')
+                influences.append((states[bone], weight / 32767))
+            if abs(sum(w for _, w in influences) - 1) > .001: raise ValueError('weights do not sum to one')
+            weights.append(influences)
+    else:
+        count = packed_bones >> 24
+        if (count > 2).any(): raise ValueError('invalid packed bone weight count')
+        wa = np.where(count >= 1, w0, 0); wb = np.where(count >= 2, w1, 0)
+        last = 32767 - wa - wb
+        if (last < 0).any(): raise ValueError('invalid bone influence')
+        bones = np.stack((packed_bones & 255, (packed_bones >> 8) & 255, (packed_bones >> 16) & 255), axis=1)
+        values = np.stack((wa, wb, last), axis=1)
+        slot = np.arange(3)[None, :]
+        # the derived weight sits at position `count`; stored weights fill the slots before it
+        values = np.where(slot < count[:, None], values, 0)
+        values[np.arange(vc), count] = last
+        used = (slot <= count[:, None]) & (values > 0)
+        if (bones[used] >= state_count).any(): raise ValueError('invalid bone influence')
+        # stored weights plus the derived remainder always total 32767, so these sum to one by construction
+        mapped = np.asarray(states, dtype=np.int64)[np.minimum(bones, max(state_count - 1, 0))]
+        scaled = values / 32767
+        weights = [[(b, w) for b, w, keep in zip(rb, rw, ru) if keep]
+                   for rb, rw, ru in zip(mapped.tolist(), scaled.tolist(), used.tolist())]
+    if (vf >> 8) & 15 != 10: raise ValueError('normal encoding unsupported')
+    packed_normals = field(p, 4, '<u4').ravel(); p += 4
+    normals = unpack_normals(packed_normals)
+    tangents = unpack_tangents(packed_normals, normals)
+    colors = None
+    if vf & 0x10:
+        colors = raw[:, p:p + 4]; p += 4
+    uv_sets = []
+    for _ in mesh.uv_indices:
+        uv_sets.append(field(p, 8, '<f4').reshape(vc, 2).astype(np.float64)); p += 8
+    if p != stride: raise ValueError(f'unhandled vertex fields: read {p} of {stride}')
+    if not np.isfinite(positions).all() or any(not np.isfinite(uv).all() for uv in uv_sets): raise ValueError('non-finite vertex')
+    mesh.positions = list(map(tuple, positions.tolist()))
+    mesh.packed_normals = packed_normals.tolist()
+    mesh.normals = list(map(tuple, normals.tolist()))
+    mesh.tangents = list(map(tuple, tangents.tolist()))
+    if colors is not None: mesh.colors = list(map(tuple, colors.tolist()))
+    if uv_sets:
+        columns = [list(map(tuple, uv.tolist())) for uv in uv_sets]
+        mesh.uvs = list(map(list, zip(*columns)))
+    else:
+        mesh.uvs = [[] for _ in range(vc)]
+    mesh.weights = weights
+
+
 def decode_skeleton(b):
     count, hdr_off, data_off = b.unpack('<3H', 0x74)
     linear = fix(b.u16(0xda))
@@ -132,7 +300,7 @@ def decode_skeleton(b):
     return bones, rotations
 
 
-def decode_model(archive, asset, family=None, stop=None, allow_unresolved_family=False):
+def decode_model(archive, asset, family=None, stop=None, allow_unresolved_family=False, first_lod_only=False):
     if asset.type_name != 'mdl_' or asset.version != 20:
         raise ValueError(f'model version {asset.version} is not supported by the v20 decoder')
     reader = PageReader(archive)
@@ -187,11 +355,16 @@ def decode_model(archive, asset, family=None, stop=None, allow_unresolved_family
     warnings = []
     if not family_resolved: warnings.append(f'Material set unavailable: {chosen}. Export disabled.')
     runtime = OodleRuntime(archive.game_root)
-    for i in range(grp_count):
+    groups = [b.unpack('<iii4B', 0xc4 + fix(grp_off) + i * 16) for i in range(grp_count)]
+    lod_levels = sorted({li + k for (_o, _c, _r, _comp, li, lc, _lm) in groups for k in range(lc)})
+    wanted = range(grp_count)
+    if first_lod_only and groups:  # preview only needs the most detailed LOD; the rest decode on demand
+        wanted = [min(range(grp_count), key=lambda i: groups[i][4])]
+    for i in wanted:
         if stop and stop.is_set():
             from .oodle_stream import ScanCancelled
             raise ScanCancelled()
-        off, cmp_size, raw_size, comp, li, lc, lm = b.unpack('<iii4B', 0xc4 + fix(grp_off) + i * 16)
+        off, cmp_size, raw_size, comp, li, lc, lm = groups[i]
         if min(off, cmp_size, raw_size) < 0 or off + cmp_size > len(streamed): raise ValueError('invalid VG extent')
         payload = streamed[off:off+cmp_size]
         if comp == 3: payload = decompress_stream(payload, raw_size, runtime, stop)
@@ -215,59 +388,14 @@ def decode_model(archive, asset, family=None, stop=None, allow_unresolved_family
                 vf, vc, stride, bone_count, io, ic, vo, vs, eo, es, bo, bs = values
                 if vc > 10_000_000 or vc * stride != vs: raise ValueError('vertex buffer/stride mismatch')
                 if ic >> 28 != 1 or (ic & 0xfffffff) % 3: raise ValueError('non-triangle VG index layout unsupported')
-                indices = list(g.unpack(f'<{ic & 0xfffffff}H', mp + 16 + io))
-                if any(x >= vc for x in indices): raise ValueError('triangle index outside mesh')
+                index_count = ic & 0xfffffff
+                if mp + 16 + io < 0 or mp + 16 + io + index_count * 2 > len(g.data): raise ValueError('model read outside buffer')
+                index_array = np.frombuffer(g.data, dtype='<u2', count=index_count, offset=mp + 16 + io)
+                if index_count and int(index_array.max()) >= vc: raise ValueError('triangle index outside mesh')
+                indices = index_array.tolist()
                 mesh = Mesh(f'mesh_{mesh_id}', mesh_materials[mesh_id], indices=indices)
                 mesh.uv_indices = uv_channel_indices(vf)
-                extra_base = mp + 32 + eo
-                for v in range(vc):
-                    p = mp + 24 + vo + v * stride
-                    start = p
-                    fmt = vf & 3
-                    if fmt == 1: position = g.unpack('<3f', p); p += 12
-                    elif fmt == 2:
-                        packed = g.unpack('<Q', p)[0]; p += 8
-                        position = ((packed & 0x1fffff)/1024-1024,
-                                    ((packed >> 21) & 0x1fffff)/1024-1024,
-                                    ((packed >> 42) & 0x3fffff)/1024-2048)
-                    else: raise ValueError(f'vertex position encoding {fmt} unsupported')
-                    influences = []
-                    weight_format = (vf >> 12) & 7
-                    if weight_format != 5: raise ValueError(f'vertex weight encoding {weight_format} unsupported')
-                    w0, w1, packed_bones = g.unpack('<HHI', p); p += 8
-                    if flags & 0x4000:
-                        first, last = packed_bones & 1023, (packed_bones >> 10) & 1023
-                        n = packed_bones >> 24
-                        if n > 15: raise ValueError('too many extended bone weights')
-                        source = [(first, w0)]
-                        remaining = 32767 - w0
-                        for middle in range(n - 1):
-                            idx = w1 + middle
-                            if idx * 4 + 4 > es: raise ValueError('extra weight index outside mesh')
-                            weight, bone = g.unpack('<HH', extra_base + idx * 4)
-                            source.append((bone, weight)); remaining -= weight
-                        if n: source.append((last, remaining))
-                    else:
-                        source = simple_bone_influences(w0, w1, packed_bones)
-                    for bone, weight in source:
-                        if weight < 0 or weight > 32767: raise ValueError('invalid bone influence')
-                        if not weight: continue
-                        if bone >= len(states): raise ValueError('invalid bone influence')
-                        influences.append((states[bone], weight / 32767))
-                    if abs(sum(w for _, w in influences)-1) > .001: raise ValueError('weights do not sum to one')
-                    if (vf >> 8) & 15 != 10: raise ValueError('normal encoding unsupported')
-                    packed = g.unpack('<I', p)[0]; p += 4
-                    mesh.packed_normals.append(packed)
-                    mesh.normals.append(unpack_normal(packed))
-                    mesh.tangents.append(unpack_tangent(packed,mesh.normals[-1]))
-                    if vf & 0x10:
-                        mesh.colors.append(g.unpack('<4B', p)); p += 4
-                    uv_sets = []
-                    for n in mesh.uv_indices:
-                        uv_sets.append(g.unpack('<2f', p)); p += 8
-                    if p - start != stride: raise ValueError(f'unhandled vertex fields: read {p-start} of {stride}')
-                    if not all(math.isfinite(x) for x in (*position, *(x for uv in uv_sets for x in uv))): raise ValueError('non-finite vertex')
-                    mesh.positions.append(position); mesh.uvs.append(uv_sets); mesh.weights.append(influences)
+                decode_vertices(mesh, g, mp + 24 + vo, vc, stride, vf, flags, states, mp + 32 + eo, es)
                 meshes.append(mesh)
             lods[level] = meshes
     if not any(mesh.positions and mesh.indices for meshes in lods.values() for mesh in meshes):
@@ -278,4 +406,6 @@ def decode_model(archive, asset, family=None, stop=None, allow_unresolved_family
     if rig_count:
         rp = reader.pointer(header + 32, rig_count * 8)
         rigs = [f'{x:016X}' for x in struct.unpack_from(f'<{rig_count}Q', archive.data, rp)]
-    return Model(f'{asset.guid:016X}', name, str(archive.path), chosen, family_names, materials, bones, lods, thresholds, rigs, warnings, family_resolved)
+    partial = len(wanted) < grp_count
+    return Model(f'{asset.guid:016X}', name, str(archive.path), chosen, family_names, materials, bones, lods, thresholds, rigs, warnings,
+                 family_resolved, lod_levels=lod_levels or sorted(lods), partial=partial)

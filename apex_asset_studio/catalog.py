@@ -4,6 +4,7 @@ import os
 import json
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,6 +79,10 @@ CREATE TABLE IF NOT EXISTS cosmetics (
     skin_guid TEXT NOT NULL, name TEXT NOT NULL, quality TEXT, details TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_cosmetics_owner ON cosmetics(owner_guid);
+CREATE TABLE IF NOT EXISTS animation_links (
+    sequence_guid TEXT NOT NULL, target_guid TEXT NOT NULL, kind TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_animation_links_target ON animation_links(target_guid, kind);
 """
 
 
@@ -316,6 +321,11 @@ class Catalog:
                 if progress:
                     progress("Resolving cosmetic names and on-demand model packages…", total, total)
                 rebuild_cosmetics(db)
+                if progress:
+                    progress("Linking animations to models…", total, total)
+                db.execute("INSERT INTO meta(key,value) VALUES('index_stamp',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                           (str(time.time()),))
+                self._rebuild_animation_links(db)
                 db.execute(
                     "INSERT INTO meta(key,value) VALUES('index_version',?) "
                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -365,27 +375,40 @@ class Catalog:
                 sections.append({"label": label, "types": types, "count": count})
         return sections
 
-    def search_assets(self, text: str = "", asset_type: str | None = None, limit: int = 1000):
-        clauses = []
-        args: list[object] = []
+    # ---- search ---------------------------------------------------------------------------------
+    # Searches stream rows and stop at the page size, and counts stop at COUNT_CAP, so common terms return
+    # instantly and rare ones cost one pass over the table. The UI runs them off the main thread.
+    # (A trigram full-text index was measured: it added ~250 MB per million assets and was slower for common
+    # terms, so it isn't used.)
+    COUNT_CAP = 10000
+
+    @staticmethod
+    def _asset_filter(text, asset_type):
+        clauses, args = [], []
+        text = (text or '').strip().lower()
         if text:
-            t = text.strip().lower()
-            clauses.append(
-                "(lower(a.guid) LIKE ? OR lower(a.type) LIKE ? OR lower(c.filename) LIKE ? OR lower(c.path) LIKE ? OR lower(d.name) LIKE ?)"
-            )
-            args.extend([f"%{t}%"] * 5)
+            clauses.append("instr(lower(a.guid || ' ' || a.type || ' ' || c.filename || ' ' || coalesce(d.name, '')), ?) > 0")
+            args.append(text)
         if asset_type:
-            clauses.append("a.type=?")
-            args.append(asset_type)
-        where = "WHERE " + " AND ".join(clauses) if clauses else ""
+            clauses.append("a.type=?"); args.append(asset_type)
+        return ("WHERE " + " AND ".join(clauses)) if clauses else "", args
+
+    def search_assets(self, text: str = "", asset_type: str | None = None, limit: int = 1000, offset: int = 0):
+        where, args = self._asset_filter(text, asset_type)
         sql = f"""SELECT a.id,a.container_id,a.guid,a.type,a.version,a.header_size,a.starpak_offset,a.starpak_index,
                          a.opt_starpak_offset,a.ordinal,c.filename,c.path,c.patch_count,c.compression,c.status,
                          d.name,d.status decode_status,d.error decode_error
                   FROM assets a JOIN containers c ON c.id=a.container_id LEFT JOIN asset_details d ON d.asset_id=a.id {where}
-                  ORDER BY c.filename,a.ordinal LIMIT ?"""
-        args.append(limit)
+                  ORDER BY a.id LIMIT ? OFFSET ?"""
         with self.connect() as db:
-            return db.execute(sql, args).fetchall()
+            return db.execute(sql, [*args, limit, offset]).fetchall()
+
+    def count_assets(self, text: str = "", asset_type: str | None = None) -> int:
+        """Number of matches, stopping at COUNT_CAP + 1 (show as "10,000+")."""
+        where, args = self._asset_filter(text, asset_type)
+        with self.connect() as db:
+            return db.execute(f"""SELECT COUNT(*) FROM (SELECT 1 FROM assets a JOIN containers c ON c.id=a.container_id
+                                  LEFT JOIN asset_details d ON d.asset_id=a.id {where} LIMIT ?)""", [*args, self.COUNT_CAP + 1]).fetchone()[0]
 
     def get_asset(self, asset_id: int):
         with self.connect() as db:
@@ -417,34 +440,58 @@ class Catalog:
                 LEFT JOIN assets a ON a.guid=e.guid LEFT JOIN asset_details d ON d.asset_id=a.id
                 LEFT JOIN containers c ON c.id=a.container_id WHERE e.asset_id=? ORDER BY e.reference_index,c.filename""", (asset_id,)).fetchall()
 
+    def _rebuild_animation_links(self, db):
+        """Store which sequences each rig and model declares, so the Animations window doesn't have to parse
+        every sequence header each time it opens."""
+        db.execute('DELETE FROM animation_links')
+        links = []
+        for row in db.execute('''SELECT a.guid,a.type,d.details FROM assets a JOIN asset_details d ON d.asset_id=a.id
+                WHERE a.type IN ('arig','aseq') AND d.status='animation_header_decoded' '''):
+            details = json.loads(row['details'])
+            if row['type'] == 'arig':
+                links.extend((sequence, row['guid'], 'rig') for sequence in details.get('declared_sequences', []))
+            else:
+                links.extend((row['guid'], model, 'model') for model in details.get('declared_models', []))
+        db.executemany('INSERT INTO animation_links(sequence_guid,target_guid,kind) VALUES(?,?,?)', links)
+        stamp = db.execute("SELECT value FROM meta WHERE key='index_stamp'").fetchone()
+        db.execute("INSERT INTO meta(key,value) VALUES('links_stamp',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                   (stamp[0] if stamp else 'built',))
+
+    def ensure_animation_links(self):
+        """Build the animation link table once for libraries scanned before it existed (a few seconds, one time)."""
+        with self._lock, self.connect() as db:
+            built = db.execute("SELECT value FROM meta WHERE key='links_stamp'").fetchone()
+            stamp = db.execute("SELECT value FROM meta WHERE key='index_stamp'").fetchone()
+            if built is None or (stamp is not None and built[0] != stamp[0]):
+                self._rebuild_animation_links(db)
+
     def declared_animations(self, model_guid, rig_guids):
         """Return exact typed links; this does not assert decoded tracks or retargetability."""
-        sequence_rigs = {}
+        self.ensure_animation_links()
+        rig_guids = list(rig_guids)
         with self.connect() as db:
-            for rig in rig_guids:
-                rows = db.execute('''SELECT d.details FROM assets a JOIN asset_details d ON d.asset_id=a.id
-                    WHERE a.guid=? AND a.type='arig' AND d.status='animation_header_decoded' ''',(rig,)).fetchall()
-                for row in rows:
-                    for sequence in json.loads(row['details']).get('declared_sequences',[]):
-                        sequence_rigs.setdefault(sequence,set()).add(rig)
-            rows = db.execute('''SELECT a.guid,d.name,d.details,c.filename,c.path FROM assets a
-                JOIN asset_details d ON d.asset_id=a.id JOIN containers c ON c.id=a.container_id
-                WHERE a.type='aseq' AND d.status='animation_header_decoded' ORDER BY d.name,c.filename''').fetchall()
-        result = []
-        for row in rows:
-            details = json.loads(row['details'])
-            direct = model_guid in details.get('declared_models',[])
-            rigs = sorted(sequence_rigs.get(row['guid'],[]))
-            if direct or rigs:
-                result.append(dict(row, declared_model_link=direct, declared_rig_links=rigs,
-                                   track_status='not_decoded'))
-        return result
+            sequence_rigs = {}
+            if rig_guids:
+                marks = ','.join('?' for _ in rig_guids)
+                for row in db.execute(f"SELECT sequence_guid,target_guid FROM animation_links WHERE kind='rig' AND target_guid IN ({marks})", rig_guids):
+                    sequence_rigs.setdefault(row['sequence_guid'], set()).add(row['target_guid'])
+            direct = {r[0] for r in db.execute("SELECT sequence_guid FROM animation_links WHERE kind='model' AND target_guid=?", (model_guid,))}
+            wanted = sorted(direct | set(sequence_rigs))
+            rows = []
+            for chunk in range(0, len(wanted), 500):
+                part = wanted[chunk:chunk + 500]; marks = ','.join('?' for _ in part)
+                rows += db.execute(f'''SELECT a.guid,d.name,d.details,c.filename,c.path FROM assets a
+                    JOIN asset_details d ON d.asset_id=a.id JOIN containers c ON c.id=a.container_id
+                    WHERE a.type='aseq' AND d.status='animation_header_decoded' AND a.guid IN ({marks})''', part).fetchall()
+        rows.sort(key=lambda r: (r['name'] or '', r['filename']))
+        return [dict(row, declared_model_link=row['guid'] in direct, declared_rig_links=sorted(sequence_rigs.get(row['guid'], [])),
+                     track_status='not_decoded') for row in rows]
 
     def asset_types(self) -> list[str]:
         with self.connect() as db:
             return [r[0] for r in db.execute("SELECT DISTINCT type FROM assets ORDER BY type")]
 
-    def search_strings(self, query: str, limit: int = 1000):
+    def search_strings(self, query: str, limit: int = 1000, offset: int = 0):
         q = query.strip().lower()
         if not q:
             return []
@@ -452,9 +499,8 @@ class Catalog:
             return db.execute(
                 """SELECT s.id,s.value,c.filename,c.path,c.compression
                    FROM strings s JOIN containers c ON c.id=s.container_id
-                   WHERE s.value_lc LIKE ?
-                   ORDER BY CASE WHEN s.value_lc=? THEN 0 ELSE 1 END, length(s.value), c.filename LIMIT ?""",
-                (f"%{q}%", q, limit),
+                   WHERE instr(s.value_lc, ?) > 0 ORDER BY s.id LIMIT ? OFFSET ?""",
+                (q, limit, offset),
             ).fetchall()
 
     def failure_groups(self) -> list[sqlite3.Row]:
