@@ -1,22 +1,40 @@
-# Third-party / format research notices
+# Third-party notices
 
-Apex Asset Studio uses public reverse-engineering work to interoperate with Respawn RPak/StarPak data.
+Apex Asset Studio is licensed under the GNU Affero General Public License v3.0 or later. It includes or is built with the components below, under their own licenses. License texts for the bundled packages are in the `third_party_licenses` folder of the release.
 
-- reSource Xtractor (RSX): https://github.com/r-ex/rsx — AGPL-3.0. The RTech decoder table/behavior in this test tree is derived from/publicly cross-checked against RSX, so this project is distributed under AGPL-3.0-or-later.
-- pyooz: https://github.com/zao/pyooz — GPL-3.0-or-later. The packaged application bundles this open-source Python binding for Oodle-compatible decompression.
-- ooz: https://github.com/powzix/ooz — GPL-3.0-or-later. pyooz wraps the open-source ooz decompressor.
-- CAST format ecosystem: https://github.com/dtzxporter/cast
-- Pillow: https://github.com/python-pillow/Pillow — HPND license; preview rendering and PNG output.
-- texture2ddecoder: https://github.com/K0lb3/texture2ddecoder — MIT license; block texture decoding.
-- PyInstaller: https://github.com/pyinstaller/pyinstaller — GPL with bootloader exception; standalone Windows packaging.
-- NumPy: https://numpy.org — BSD-3-Clause; animation transforms and skinning.
-- PyOpenGL: https://github.com/mcfletch/pyopengl — BSD-style license; GPU rendering.
-- pyopengltk: https://github.com/jonwright/pyopengltk — BSD-2-Clause; Tk OpenGL context.
-- Shader references reviewed: https://github.com/Kaiserouo/Apex-Legends-Titanfall-Auto-Shader-Blender-Addon and https://github.com/Gl2imm/Apex-Toolbox. Their Blender node groups and game assets are not bundled.
-- DirectX Shader Compiler: https://github.com/microsoft/DirectXShaderCompiler — DXC 1.9.2609 compiler/reflection binaries. Bundled notices are in third_party/dxc. Used only for shader reflection; RPak/StarPak extraction stays in Apex Asset Studio.
+## Bundled software
 
-No proprietary Oodle DLL is bundled by Apex Asset Studio. If pyooz is unavailable, the program can fall back to a compatible Oodle DLL already present on the user's system.
+| Component | License | Source |
+| --- | --- | --- |
+| Python | PSF-2.0 | https://www.python.org |
+| Tcl/Tk | Tcl/Tk license (BSD-style) | https://www.tcl.tk |
+| NumPy | BSD-3-Clause | https://numpy.org |
+| Pillow | MIT-CMU (HPND) | https://github.com/python-pillow/Pillow |
+| PyOpenGL | BSD-3-Clause | https://github.com/mcfletch/pyopengl |
+| pyopengltk | MIT | https://github.com/jonwright/pyopengltk |
+| texture2ddecoder | MIT | https://github.com/K0lb3/texture2ddecoder |
+| pyooz | GPL-3.0-or-later | https://github.com/zao/pyooz |
+| ooz (wrapped by pyooz) | GPL-3.0-or-later | https://github.com/powzix/ooz |
+| DirectX Shader Compiler 1.9.2609 (`dxc.exe`, `dxcompiler.dll`) | See `LICENSE-LLVM.txt`, `LICENSE-MS.txt`, `LICENCE-MIT.txt` in `third_party/dxc` | https://github.com/microsoft/DirectXShaderCompiler |
+| PyInstaller bootloader | GPL-2.0 with bootloader exception | https://github.com/pyinstaller/pyinstaller |
 
-Apex Legends and related names/assets are property of their respective owners. This tool contains no Apex game assets.
+No proprietary Oodle library is included. If pyooz is unavailable, the app can use a compatible Oodle DLL already present on the system.
 
-Ruka-tan artwork (mascot): original artists uncredited; character and artwork rights remain with their respective owners. The images are excluded from the application's AGPL license. File provenance is in apex_asset_studio/resources/ARTWORK_SOURCE.md.
+## Format research
+
+- reSource Xtractor (RSX), AGPL-3.0: https://github.com/r-ex/rsx. The RTech decoding is derived from and cross-checked against RSX, which is why this project is AGPL-3.0-or-later.
+- CAST format: https://github.com/dtzxporter/cast
+- Shader research references (nothing from these projects is bundled): https://github.com/Kaiserouo/Apex-Legends-Titanfall-Auto-Shader-Blender-Addon, https://github.com/Gl2imm/Apex-Toolbox
+
+## Fonts
+
+No font files are included. The app uses fonts installed with Windows (Segoe UI, Trebuchet MS, Consolas or Cascadia Mono).
+
+## Artwork
+
+- Mascot: Ruka-tan (Ruka Sarashina) from *Rent-A-Girlfriend* (*Kanojo, Okarishimasu*) by Reiji Miyajima, published by Kodansha. Character and artwork rights belong to their respective owners; the artwork is not covered by this project's license. Files: `resources/ruka.webp`, `resources/ruka_avatar.png`, `resources/app_icon.ico`.
+- Theme backgrounds (`resources/backgrounds`): royalty-free images supplied by the author, resized. `metro.jpg` is "Glass-covered facade" from Unsplash (Unsplash License). The center of `aurora.jpg` was retouched.
+
+## Trademarks
+
+Apex Legends is a trademark of Electronic Arts Inc. Apex Asset Studio is not affiliated with, endorsed or sponsored by Electronic Arts Inc. or Respawn Entertainment, and contains no game files.

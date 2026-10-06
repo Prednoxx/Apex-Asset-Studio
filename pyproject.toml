@@ -12,13 +12,12 @@ dependencies = ["pyooz==0.0.8", "Pillow>=12.0,<13", "texture2ddecoder==1.0.6", "
 
 [project.scripts]
 apex-asset-studio = "apex_asset_studio.ui.app:main"
-aas-diagnostics = "apex_asset_studio.diagnostics:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "apex_asset_studio.__version__"}
 
 [tool.setuptools.package-data]
-apex_asset_studio = ["resources/*", "resources/fonts/*"]
+apex_asset_studio = ["resources/*", "resources/backgrounds/*"]
 
 [tool.setuptools.packages.find]
 include = ["apex_asset_studio*"]

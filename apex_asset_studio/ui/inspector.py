@@ -66,7 +66,7 @@ def show_material_inspector(app):
     tree.tag_configure('problem', foreground=t['warn']); tree.tag_configure('material', font=fonts(app)['strong'])
     right = ttk.Frame(body, style='Panel.TFrame', padding=12); body.add(right, weight=2)
     picture = ttk.Label(right, style='Panel.TLabel', anchor='center'); picture.pack(fill='both', expand=True)
-    detail = tk.StringVar(value='Pick a material to highlight it in the preview, or a texture to see it.')
+    detail = tk.StringVar(value='Select a material or texture.')
     ttk.Label(right, textvariable=detail, style='Panel.TLabel', wraplength=380, justify='left').pack(fill='x', pady=(8, 0))
 
     results = queue.Queue(); entries = {}; root = app.game_path.get(); source = model.source
@@ -105,7 +105,7 @@ def show_material_inspector(app):
                 elif item[0] == 'error': status.set(item[1])
                 elif item[0] == 'done':
                     problems = sum(any('problem' in tree.item(i, 'tags') for i in (m, *tree.get_children(m))) for m in tree.get_children())
-                    status.set(f'{len(used)} materials' + (f' · {problems} with problems' if problems else ' · all understood'))
+                    status.set(f'{len(used)} materials' + (f' · {problems} with problems' if problems else ' · no issues'))
         except queue.Empty:
             pass
         window.after(100, pump)
@@ -124,7 +124,7 @@ def show_material_inspector(app):
             child = tree.insert(iid, 'end', text=ROLE_NAMES.get(role, role.replace('_', ' ').capitalize()),
                                 values=(entry.get('shader_resource') or f"slot {entry.get('slot')}",
                                         f"{info['width']}×{info['height']}" if info else '—', info.get('format', '—'),
-                                        _channels(entry), 'Used in export' if ok else (entry.get('info_error') or 'Not used yet')),
+                                        _channels(entry), 'Exported' if ok else (entry.get('info_error') or 'Not exported')),
                                 tags=() if ok else ('problem',))
             entries[child] = ('texture', index, entry, None)
 

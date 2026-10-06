@@ -124,7 +124,7 @@ class LibraryPage:
 
     def _update_animation_display(self, *_):
         name = self.animation_name.get()
-        self.animation_display.set(name or 'Bind pose. Browse animations to pick a clip.')
+        self.animation_display.set(name or 'Bind pose')
         self._update_frame_text()
         self._update_badge()
 
@@ -223,19 +223,18 @@ class LibraryPage:
         filters.add(rarity); rarity.bind('<<ComboboxSelected>>', lambda _e: self._search_simple())
         self.season_filter_var = tk.StringVar(value='All seasons')
         self.season_filter = ttk.Combobox(filters, textvariable=self.season_filter_var, state='readonly', width=12, values=('All seasons',))
-        filters.add(widgets.tip(self.season_filter, 'Show only skins released in one season (read from the game files; base and store '
-                                                    'skins have no season).'))
+        filters.add(self.season_filter)
         self.season_filter.bind('<<ComboboxSelected>>', lambda _e: self._search_simple())
         self.sort_var = tk.StringVar(value=self.session.get('sort', 'Name A–Z'))
         sort = ttk.Combobox(filters, textvariable=self.sort_var, state='readonly', width=18, values=tuple(self.SORTS))
-        filters.add(widgets.tip(sort, 'Order of the list. You can also click a column heading (click again to reverse).'))
+        filters.add(widgets.tip(sort))
         sort.bind('<<ComboboxSelected>>', lambda _e: self._apply_sort())
         filters.add(widgets.tip(ttk.Checkbutton(filters, text='Hide unavailable', variable=self.hide_unavailable_var,
                     style='Panel.TCheckbutton', command=self._search_simple),
-                    "Hide skins whose model isn't in your game files, so they can't be previewed or exported."))
+                    'Hide skins with no model in the game files'))
         filters.add(widgets.tip(ttk.Checkbutton(filters, text='Search all skins', variable=self.search_all_var,
                     style='Panel.TCheckbutton', command=self._search_simple),
-                    'Search every Legend and weapon at once instead of only the one picked on the left.'))
+                    'Search all Legends and weapons'))
         assets_body = ttk.Frame(center, style='Panel.TFrame')
         assets_body.pack(fill='both', expand=True)
         cols = ('name', 'quality', 'season', 'source', 'state')
@@ -266,10 +265,9 @@ class LibraryPage:
         ttk.Label(titles, textvariable=self.inspector_title, style='Title.Panel.TLabel', width=1).pack(fill='x')
         ttk.Label(titles, textvariable=self.inspector_meta, style='Data.Panel.TLabel', width=1).pack(fill='x', pady=(3, 0))
         widgets.tip(ttk.Button(head, text='Reset view', style='Ghost.Panel.TButton', command=lambda: self.preview.reset_view()),
-                    'Put the camera back to the starting angle and zoom (R).').pack(side='right', anchor='n')
+                    'Reset view (R)').pack(side='right', anchor='n')
         widgets.tip(ttk.Button(head, text='Materials…', style='Ghost.Panel.TButton', command=lambda: show_material_inspector(self)),
-                    'Every material and texture this model uses, what each texture is for, and anything that '
-                    "couldn't be read. Picking a material highlights it in the preview.").pack(side='right', anchor='n')
+                    'Materials and textures of this model').pack(side='right', anchor='n')
 
         viewport = ttk.Frame(detail, style='Hairline.TFrame', padding=2)
         self.preview = ModelPreview(viewport, height=300)
@@ -285,12 +283,11 @@ class LibraryPage:
         self.model_choice = ttk.Combobox(model_bar, textvariable=self.model_choice_var, state='disabled', width=20)
         self.model_choice.pack(side='left', fill='x', expand=True)
         self.model_choice.bind('<<ComboboxSelected>>', lambda _e: self._load_cosmetic_model())
-        widgets.tip(self.model_choice, 'Which model of this skin to show: full body, first-person arms, and so on.')
+        widgets.tip(self.model_choice)
         ttk.Label(model_bar, text='LOD', style='Section.Panel.TLabel').pack(side='left', padx=(16, 8))
         self.lod_choice = ttk.Combobox(model_bar, textvariable=self.lod_var, state='disabled', width=7)
         self.lod_choice.pack(side='left')
-        widgets.tip(self.lod_choice, 'Level of detail. LOD 0 is the most detailed; higher numbers are the simpler meshes '
-                                     'the game shows at a distance.')
+        widgets.tip(self.lod_choice, 'Level of detail (0 = highest)')
         self.lod_choice.bind('<<ComboboxSelected>>', lambda _e: self._render_model())
 
         self.simple_info = tk.Text(detail, height=3, wrap='word', font=f['small'], state='disabled', cursor='arrow')
@@ -300,8 +297,7 @@ class LibraryPage:
         self._section(anim, 'Animation').pack(fill='x')
         actions = widgets.Flow(anim, gap=(4, 2)); actions.pack(fill='x', pady=(2, 0))
         self.animations_btn = actions.add(widgets.tip(ttk.Button(actions, text='Browse animations…', style='Ghost.Panel.TButton',
-                                          command=self._show_declared_animations, state='disabled'),
-                                          'Pick one of the animations made for this model and play it here.'), gap=0)
+                                          command=self._show_declared_animations, state='disabled')), gap=0)
         ttk.Label(anim, textvariable=self.animation_display, style='Panel.TLabel', width=1).pack(fill='x', pady=(2, 6))
         transport = ttk.Frame(anim, style='Panel.TFrame')
         transport.pack(fill='x')
@@ -316,14 +312,13 @@ class LibraryPage:
         self._section(export, 'Export').pack(fill='x')
         links = widgets.Flow(export, gap=(4, 2)); links.pack(fill='x', pady=(2, 0))
         self.open_source_btn = links.add(widgets.tip(ttk.Button(links, text='Show source file', style='Ghost.Panel.TButton',
-                                         command=lambda: self._open_selected_container('simple')),
-                                         'Open the game folder that holds the package this model comes from.'), gap=0)
+                                         command=lambda: self._open_selected_container('simple'))), gap=0)
         self.open_export_btn = links.add(widgets.tip(ttk.Button(links, text='Open last export', style='Ghost.Panel.TButton',
-                                         command=self._open_last_export), 'Open the folder of the most recent export.'))
+                                         command=self._open_last_export)))
         links.add(widgets.tip(ttk.Button(links, text='Export whole list…', style='Ghost.Panel.TButton', command=self._export_list),
-                              'Export every skin in the list on the left (after search and filters), one after another.'))
+                              'Export every skin in the current list'))
         self.batch_cancel_btn = widgets.tip(ttk.Button(links, text='Cancel batch', style='Ghost.Panel.TButton', command=self._cancel_batch),
-                                            'Stop after the skin being exported now.')
+                                            'Stops after the current skin')
         self._export_links = links
         self.open_source_btn.state(['disabled']); self.open_export_btn.state(['disabled'])
         folder = ttk.Frame(export, style='Panel.TFrame')
@@ -341,25 +336,23 @@ class LibraryPage:
         self.preset_choice = ttk.Combobox(presets, textvariable=self.preset_var, state='readonly', width=12)
         self.preset_choice.pack(side='left', fill='x', expand=True)
         self.preset_choice.bind('<<ComboboxSelected>>', lambda _e: self._apply_export_preset())
-        widgets.tip(self.preset_choice, 'Saved combinations of formats and options. Changing any option switches to "Custom".')
+        widgets.tip(self.preset_choice)
         kinds = widgets.Flow(export, gap=(16, 6)); kinds.pack(fill='x', pady=(0, 6))
         kinds.add(ttk.Label(kinds, text='Export', style='Muted.Panel.TLabel'))
         kinds.add(widgets.tip(ttk.Radiobutton(kinds, text='Model', value='model', variable=self.export_kind, style='Panel.TRadiobutton',
-                  command=self._refresh_export_controls), 'The skin with its skeleton, materials and textures.'), gap=12)
+                  command=self._refresh_export_controls)), gap=12)
         self.animation_export_btn = kinds.add(widgets.tip(ttk.Radiobutton(kinds, text='Animation only', value='animation',
                                               variable=self.export_kind, style='Panel.TRadiobutton', state='disabled',
                                               command=self._refresh_export_controls),
-                                              'Just the animation in the preview: a GLB with the skeleton and motion, plus an .aas.json '
-                                              'for the Blender add-on. Pick an animation first.'))
+                                              'Skeleton and motion only (GLB + .aas.json)'))
         options = widgets.Flow(export, gap=(16, 6)); options.pack(fill='x', pady=(0, 10))
         self.all_lods_check = options.add(widgets.tip(ttk.Checkbutton(options, text='All detail levels', variable=self.all_lods_var,
-                                          style='Panel.TCheckbutton'), 'Also export the lower-detail LOD meshes, not just LOD 0.'))
+                                          style='Panel.TCheckbutton')))
         self.include_animation_check = options.add(widgets.tip(ttk.Checkbutton(options, text='Include animation', variable=self.include_animation,
-                                                   state='disabled', style='Panel.TCheckbutton'),
-                                                   'Add the animation playing in the preview to the export.'))
-        hints = {'.glb': 'One binary file with everything inside. Best for Blender.',
-                 '.gltf': 'Text glTF with separate files. Same content as GLB.',
-                 '.cast': 'CAST format for other tools. Uses inches; the Blender add-on needs GLB or glTF too.'}
+                                                   state='disabled', style='Panel.TCheckbutton')))
+        hints = {'.glb': 'Binary glTF (single file)',
+                 '.gltf': 'glTF with separate files',
+                 '.cast': 'CAST (inches)'}
         formats = ttk.Frame(options, style='Panel.TFrame')  # the format checkboxes wrap as one group
         options.add(formats)
         ttk.Label(formats, text='Formats', style='Muted.Panel.TLabel').pack(side='left', padx=(0, 8))
@@ -391,9 +384,9 @@ class LibraryPage:
         self.list_count_var.set('')
         if self.catalog.index_outdated:
             self.simple_header_var.set('Library')
-            self.preview.clear('No library yet\n\nPress “Scan library” to index your Apex install.')
+            self.preview.clear('No library\n\nScan library to index the game files.')
             self._set_inspector('Nothing selected'); self._set_simple_info('')
-            self.status_var.set('Press Scan library to build your library. The first scan takes a while; you can stop and resume it.')
+            self.status_var.set('No library. Click Scan library to build it.')
             return
         owners = self.catalog.cosmetic_owners()
         categories = {}
@@ -478,8 +471,8 @@ class LibraryPage:
         self._apply_sort(remember=False)
         count = shown if spec[0] == 'owner' else len(rows)
         self.list_count_var.set(f'{count:,} item' + ('' if count == 1 else 's'))
-        self.preview.clear('Select an item to preview it')
-        self._set_inspector('Nothing selected', 'Pick an item from the list.')
+        self.preview.clear('Select a skin')
+        self._set_inspector('Nothing selected', '')
         self._set_simple_info('')
         self.open_source_btn.state(['disabled'])
         self._model = None
@@ -515,8 +508,8 @@ class LibraryPage:
                 self.model_choice_var.set(self._model_label(self._model_choices[0]))
                 self._load_cosmetic_model()
             else:
-                self.preview.clear('This cosmetic has no linked model yet')
-                self._set_simple_info('Model reference unresolved.')
+                self.preview.clear('No linked model')
+                self._set_simple_info('')
             return
         self._cosmetic = None
         asset_id = int(sel[0].split(":", 1)[1])
@@ -793,8 +786,8 @@ class LibraryPage:
         animation=self._animation if self.include_animation.get() else None
         formats = [ext for ext, var in self.format_vars.items() if var.get()]
         if not formats:
-            self.status_var.set('Pick at least one export format.'); return
-        self._blender_note = '' if {'.glb', '.gltf'} & set(formats) else ' (CAST only: the Blender add-on needs GLB or glTF.)'
+            self.status_var.set('Select at least one export format.'); return
+        self._blender_note = '' if {'.glb', '.gltf'} & set(formats) else ' (CAST only; the Blender add-on requires GLB or glTF.)'
         self._playing=False; self.play_btn.configure(text='Play')
         self._set_busy(True); self._set_activity(f'exporting: {label}')
         source = getattr(self, '_model_source', None)
@@ -853,11 +846,11 @@ class LibraryPage:
 
     def _save_export_preset(self):
         from tkinter import simpledialog
-        name = simpledialog.askstring('Save preset', 'Name for these export options:', parent=self)
+        name = simpledialog.askstring('Save preset', 'Preset name:', parent=self)
         if not name or not name.strip(): return
         name = name.strip()
         if name in self.BUILTIN_PRESETS or name == 'Custom':
-            self.status_var.set('That name is taken by a built-in preset. Pick another.'); return
+            self.status_var.set('That name is used by a built-in preset.'); return
         self.session.setdefault('export_presets', {})[name] = self._current_export_options()
         self._save_session(); self._refresh_export_presets(); self._detect_export_preset()
         self.status_var.set(f'Saved export preset "{name}".')

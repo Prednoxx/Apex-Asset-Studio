@@ -108,7 +108,7 @@ def turntable(context, seconds=8.0, clockwise=False):
     objects = lighting.model_objects(context)
     center, size, floor = lighting.bounds(objects)
     roots = _model_roots(context)
-    if not roots: raise ValueError('No model to turn. Import or select one first')
+    if not roots: raise ValueError('Select a model')
     table = bpy.data.objects.new(TURNTABLE, None)
     table.empty_display_type = 'CIRCLE'; table.empty_display_size = size * .4
     table.location = (center.x, center.y, floor)

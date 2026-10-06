@@ -56,9 +56,9 @@ class AASSettings(PropertyGroup):
     color_b: FloatVectorProperty(name="Color B", subtype='COLOR', size=3, min=0, max=1, default=(1.0, 0.19, 0.5), update=_live)
     add_floor: BoolProperty(name="Shadow catcher floor", default=False,
                             description="Invisible floor that only catches shadows (Cycles)")
-    add_camera: BoolProperty(name="Camera", default=False, description="Add a 50 mm camera framing the model from the front")
+    add_camera: BoolProperty(name="Camera", default=False, description="Add a 50 mm camera framing the model")
     scene_ready_on_import: BoolProperty(name="Scene ready on import", default=False,
-                                        description="After importing a model, set up lighting, camera and render settings")
+                                        description="Set up lighting, camera and render settings after import")
     framing: EnumProperty(name="Framing", items=[('BODY', "Full body", "The whole model, 1920×1080"),
                                                  ('PORTRAIT', "Portrait", "Head and shoulders, 1080×1350")], default='BODY')
     render_engine: EnumProperty(name="Engine", items=[('CYCLES', "Cycles", "Path traced: best quality, slower"),
@@ -92,7 +92,7 @@ def _apply_preset(context, preset):
 
 
 class AAS_OT_Import(Operator):
-    """Import an Apex Asset Studio export with its materials (or an animation onto the selected model)"""
+    """Import an Apex Asset Studio export with materials, or an animation onto the selected model"""
     bl_idname = "aas.import_asset"
     bl_label = "Import Apex Asset"
     bl_options = {"REGISTER", "UNDO"}
@@ -132,7 +132,7 @@ class AAS_OT_Import(Operator):
 
 
 class AAS_OT_Rebuild(Operator):
-    """Rebuild every material from the export file (picks up textures that were missing before)"""
+    """Rebuild all materials from the export file"""
     bl_idname = "aas.rebuild_materials"
     bl_label = "Rebuild Materials"
     bl_options = {"REGISTER", "UNDO"}
@@ -152,7 +152,7 @@ class AAS_OT_Rebuild(Operator):
 
 
 class AAS_OT_SwapSkin(Operator):
-    """Use another skin of the same model (a recolor) without re-importing: pick its .aas.json export"""
+    """Apply another skin of the same model (recolor) from its .aas.json"""
     bl_idname = "aas.swap_skin"
     bl_label = "Swap Skin (Recolor)…"
     bl_options = {"REGISTER", "UNDO"}
@@ -169,12 +169,12 @@ class AAS_OT_SwapSkin(Operator):
         except Exception as exc:
             self.report({"ERROR"}, str(exc)); return {"CANCELLED"}
         context.scene.aas_settings.manifest_path = self.filepath
-        self.report({"INFO"}, f"Now wearing {desc.get('display_name', 'the new skin')} ({swapped} material slots)")
+        self.report({"INFO"}, f"Applied {desc.get('display_name', 'the new skin')} ({swapped} material slots)")
         return {"FINISHED"}
 
 
 class AAS_OT_ResetControls(Operator):
-    """Put every material control back to its default"""
+    """Reset all material controls"""
     bl_idname = "aas.reset_material_controls"
     bl_label = "Reset"
     bl_options = {"REGISTER", "UNDO"}
@@ -187,7 +187,7 @@ class AAS_OT_ResetControls(Operator):
 
 
 class AAS_OT_ApplyLighting(Operator):
-    """Light the model with the chosen preset (replaces any previous AAS lighting)"""
+    """Add the selected lighting preset (replaces existing AAS lighting)"""
     bl_idname = "aas.apply_lighting"
     bl_label = "Apply Lighting"
     bl_options = {"REGISTER", "UNDO"}
@@ -209,7 +209,7 @@ class AAS_OT_ApplyLighting(Operator):
 
 
 class AAS_OT_ClearLighting(Operator):
-    """Remove the AAS lights, floor and camera and restore the previous world"""
+    """Remove AAS lights, floor and camera; restore the previous world"""
     bl_idname = "aas.clear_lighting"
     bl_label = "Remove Lighting"
     bl_options = {"REGISTER", "UNDO"}
@@ -221,7 +221,7 @@ class AAS_OT_ClearLighting(Operator):
 
 
 class AAS_OT_LookThrough(Operator):
-    """Switch the 3D viewports to Rendered shading to see the lighting"""
+    """Switch 3D viewports to Rendered shading"""
     bl_idname = "aas.view_lighting"
     bl_label = "Preview Lighting"
 
@@ -234,7 +234,7 @@ class AAS_OT_LookThrough(Operator):
 
 
 class AAS_OT_SceneReady(Operator):
-    """Lighting preset, framed camera and render settings in one click"""
+    """Set up lighting, camera and render settings"""
     bl_idname = "aas.scene_ready"
     bl_label = "Scene Ready"
     bl_options = {"REGISTER", "UNDO"}
@@ -249,7 +249,7 @@ class AAS_OT_SceneReady(Operator):
 
 
 class AAS_OT_FrameCamera(Operator):
-    """Point the AAS camera at the model again (after moving or posing it)"""
+    """Re-aim the AAS camera at the model"""
     bl_idname = "aas.frame_camera"
     bl_label = "Reframe Camera"
     bl_options = {"REGISTER", "UNDO"}
@@ -260,7 +260,7 @@ class AAS_OT_FrameCamera(Operator):
 
 
 class AAS_OT_Turntable(Operator):
-    """Spin the model once around its feet over the chosen length and set the output to an MP4 next to the export"""
+    """Rotate the model 360° over the set length; output MP4 next to the export"""
     bl_idname = "aas.turntable"
     bl_label = "Make Turntable"
     bl_options = {"REGISTER", "UNDO"}
@@ -273,24 +273,24 @@ class AAS_OT_Turntable(Operator):
             scene.video_output(context, scene.default_video_path(context), settings.turntable_width, settings.turntable_height)
         except Exception as exc:
             self.report({"ERROR"}, str(exc)); return {"CANCELLED"}
-        self.report({"INFO"}, f"Turntable: {frames} frames. Render it with Render Turntable (or Render > Render Animation)")
+        self.report({"INFO"}, f"Turntable: {frames} frames")
         return {"FINISHED"}
 
 
 class AAS_OT_RenderTurntable(Operator):
-    """Render the turntable animation to the video file"""
+    """Render the turntable to video"""
     bl_idname = "aas.render_turntable"
     bl_label = "Render Turntable"
 
     def execute(self, context):
         if not bpy.data.objects.get(scene.TURNTABLE):
-            self.report({"ERROR"}, "Make the turntable first"); return {"CANCELLED"}
+            self.report({"ERROR"}, "No turntable in the scene"); return {"CANCELLED"}
         bpy.ops.render.render('INVOKE_DEFAULT', animation=True)
         return {"FINISHED"}
 
 
 class AAS_OT_RemoveTurntable(Operator):
-    """Stop the spin and put the model back where it was"""
+    """Remove the turntable rotation"""
     bl_idname = "aas.remove_turntable"
     bl_label = "Remove Turntable"
     bl_options = {"REGISTER", "UNDO"}
@@ -301,7 +301,7 @@ class AAS_OT_RemoveTurntable(Operator):
 
 
 class AAS_UL_actions(bpy.types.UIList):
-    """Actions that drive the current model's skeleton: animations in one list, saved poses in the other."""
+    """Animations and saved poses for the current skeleton"""
     def filter_items(self, context, data, propname):
         actions = getattr(data, propname)
         rig = anim.target_rig(context)
@@ -322,7 +322,7 @@ class AAS_UL_actions(bpy.types.UIList):
 
 
 class AAS_OT_PlayToggle(Operator):
-    """Play or pause the animation in the viewport (Space)"""
+    """Play or pause the animation (Space)"""
     bl_idname = "aas.play_toggle"
     bl_label = "Play / Pause"
 
@@ -332,7 +332,7 @@ class AAS_OT_PlayToggle(Operator):
 
 
 class AAS_OT_BindPose(Operator):
-    """Remove the animation and return the skeleton to its bind (rest) pose"""
+    """Clear the animation and return to the bind pose"""
     bl_idname = "aas.bind_pose"
     bl_label = "Bind Pose"
     bl_options = {"REGISTER", "UNDO"}
@@ -348,7 +348,7 @@ class AAS_OT_BindPose(Operator):
 
 
 class AAS_OT_SavePose(Operator):
-    """Save the current pose (from any frame of any animation, or your own posing) to the pose list"""
+    """Save the current pose to the pose list"""
     bl_idname = "aas.save_pose"
     bl_label = "Save Pose"
     bl_options = {"REGISTER", "UNDO"}
@@ -379,7 +379,7 @@ class AAS_OT_DeletePose(Operator):
     def execute(self, context):
         settings = context.scene.aas_settings; index = settings.pose_index
         if not (0 <= index < len(bpy.data.actions)) or not anim.is_pose(bpy.data.actions[index]):
-            self.report({"ERROR"}, "Pick a pose in the list first"); return {"CANCELLED"}
+            self.report({"ERROR"}, "Select a pose"); return {"CANCELLED"}
         action = bpy.data.actions[index]
         rig = anim.target_rig(context)
         if rig and rig.animation_data and rig.animation_data.action == action: anim.bind_pose(rig)
@@ -451,7 +451,7 @@ class AAS_PT_Materials(Panel):
             col.label(text=f"{len(missing)} with missing textures:", icon='ERROR')
             for mat in missing[:6]: col.label(text="   " + mat.name)
         if any(m.get('aas_shader_revision', 0) < 3 for m in mats):
-            layout.label(text="Rebuild to use the controls below", icon='INFO')
+            layout.label(text="Rebuild materials to enable controls", icon='INFO')
         layout.operator("aas.rebuild_materials", icon="FILE_REFRESH")
         layout.operator("aas.swap_skin", icon="BRUSHES_ALL")
         settings = context.scene.aas_settings

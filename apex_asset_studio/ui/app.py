@@ -183,7 +183,7 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, AdvancedPage, Se
             self.game_path.set(str(installs[0]))
             self.status_var.set(f"Detected Apex: {installs[0]}")
         elif not self.game_path.get():
-            self.status_var.set("Apex not found. Select its installation folder.")
+            self.status_var.set("Apex Legends not found. Set the game folder.")
 
     def _browse_game(self):
         if self._scanning:
@@ -230,7 +230,7 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, AdvancedPage, Se
             return
         root = Path(self.game_path.get().strip())
         if not root.exists():
-            messagebox.showerror(APP_NAME, "Select the Apex Legends folder.")
+            messagebox.showerror(APP_NAME, "Set the Apex Legends folder.")
             return
         if self._scan_thread and self._scan_thread.is_alive():
             return
@@ -306,8 +306,8 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, AdvancedPage, Se
                     owner = f'{self._cosmetic["owner_name"]}  ·  {self.model_choice_var.get()}  ·  ' if self._cosmetic else ''
                     self._set_inspector(title, f'{owner}{total:,} vtx  ·  {len(model.bones)} bones  ·  {len(model.lod_levels or model.lods)} lod')
                     self._set_simple_info('\n'.join(warnings+model.warnings) + ('' if model.material_family_resolved else
-                        "\nThis skin's materials can't be read yet, so it can't be exported. You can still preview it."))
-                    self.status_var.set('Model loaded.' if model.material_family_resolved else "Model loaded. This skin can't be exported yet.")
+                        '\nMaterials not supported; preview only.'))
+                    self.status_var.set('Model loaded.' if model.material_family_resolved else 'Model loaded (preview only)')
                     if model.material_family_resolved: self._load_preview_textures(model,serial)
                     self._refresh_export_controls()
                 elif event[0]=='preview_textures':

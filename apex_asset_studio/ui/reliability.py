@@ -1,12 +1,10 @@
-"""Keeping the app trustworthy when things go wrong.
+"""Logging, crash recovery, the problems list and bug reports. Mixed into the app.
 
-- Every error, log line and crash traceback goes to logs/app.log in the app's data folder (kept under ~2 MB).
-- A small marker file says what the app is doing (scan, export…). If the app closes without removing it, the next
-  start says so, removes half-written export folders, and the scan simply resumes where it stopped.
-- Skins that fail to load or export are remembered with the reason ("Problems" in Advanced › Diagnostics), so it's
-  clear what can't be exported yet and why.
-- "Save bug report…" packs the logs, problems, settings and system details into one ZIP to send.
-Mixed into the app."""
+- Errors and crash tracebacks go to logs/app.log in the local data folder (rotated at 2 MB). Nothing is sent anywhere.
+- running.json records the current activity; if the app exits without clearing it, the next start reports it and
+  removes incomplete export folders.
+- Skins that fail to load or export are listed under Advanced › Diagnostics › Problems.
+- "Save bug report…" writes a local ZIP (logs, problems, settings, system info) with the home folder path redacted."""
 import json
 import os
 import platform
@@ -21,6 +19,16 @@ from pathlib import Path
 from .common import APP_VERSION
 
 LOG_LIMIT = 2 * 1024 * 1024
+
+
+def _redact(text):
+    """Bug reports are meant to be shared: replace the home folder (it contains the Windows user name) with ~."""
+    home = str(Path.home())
+    for variant in {home, home.replace('\\', '/'), home.replace('\\', '\\\\')}:
+        if len(variant) > 3: text = text.replace(variant, '~')
+    user = os.environ.get('USERNAME') or os.environ.get('USER') or ''
+    if len(user) > 2: text = text.replace(f'\\{user}\\', '\\<user>\\').replace(f'/{user}/', '/<user>/')
+    return text
 
 
 class Reliability:
@@ -90,10 +98,10 @@ class Reliability:
         activity = previous.get('activity', 'unknown')
         self._file_log(f'Previous run ended unexpectedly while: {activity}')
         removed = self._remove_partial_exports()
-        note = {'scanning': 'The library scan will continue where it stopped.',
-                'exporting': 'Half-written exports were removed; export again to finish them.'}.get(activity.split(':')[0], '')
-        extra = f' Removed {removed} unfinished export folder(s).' if removed else ''
-        self.status_var.set(f'Apex Asset Studio closed unexpectedly last time ({activity}). {note}{extra}'.strip())
+        note = {'scanning': 'The scan resumes where it stopped.',
+                'exporting': 'Incomplete exports were removed.'}.get(activity.split(':')[0], '')
+        extra = f' Removed {removed} incomplete export folder(s).' if removed else ''
+        self.status_var.set(f'The previous session ended unexpectedly ({activity}). {note}{extra}'.strip())
         self._log(f'Previous run ended unexpectedly while {activity}.{extra}')
 
     def _remove_partial_exports(self):
@@ -150,11 +158,12 @@ class Reliability:
         try:
             report = self._diagnostic_report()
             with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as archive:
-                archive.writestr('report.json', json.dumps(report, indent=2, default=str))
-                archive.writestr('problems.json', json.dumps(self._problems, indent=1))
-                archive.writestr('visible_log.txt', self.log_text.get('1.0', 'end'))
+                archive.writestr('report.json', _redact(json.dumps(report, indent=2, default=str)))
+                archive.writestr('problems.json', _redact(json.dumps(self._problems, indent=1)))
+                archive.writestr('visible_log.txt', _redact(self.log_text.get('1.0', 'end')))
                 for path in (self._log_path, self._log_path.with_name('app.old.log'), self.session_path, self.appearance_path):
-                    if Path(path).exists(): archive.write(path, Path(path).name)
+                    if Path(path).exists():
+                        archive.writestr(Path(path).name, _redact(Path(path).read_text(encoding='utf-8', errors='replace')))
             self.status_var.set(f'Saved bug report: {out}')
         except Exception as exc:
             self.status_var.set(f'Could not save the bug report: {exc}')

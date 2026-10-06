@@ -309,5 +309,6 @@ class Tooltip:
         if self.tip: self.tip.destroy(); self.tip = None
 
 
-def tip(widget, text):
-    Tooltip(widget, text); return widget
+def tip(widget, text=None):
+    if text: Tooltip(widget, text)
+    return widget

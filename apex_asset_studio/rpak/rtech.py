@@ -413,8 +413,7 @@ class OodleRuntime:
 
         if self._decompress is None:
             raise RuntimeError(
-                "No Oodle-compatible decoder is available. Run Apex Asset Studio through "
-                "RUN_TEST.bat so the open-source pyooz dependency is installed."
+                "No Oodle decoder available. Install the pyooz package."
             )
 
         src = ctypes.create_string_buffer(compressed)

@@ -56,7 +56,7 @@ class BatchExport:
         choice = next((m for field in MAIN_MODEL for m in available if m['field'] == field), None)
         label = f"{cosmetic['owner_name']} - {cosmetic['name']}"
         if choice is None:
-            return dict(label=label, skip='not available in your game files')
+            return dict(label=label, skip='not in the game files')
         root = Path(self.game_path.get())
         return dict(label=f"{label} - {self._model_label(choice)}", guid=choice['guid'],
                     preferred=root / 'paks' / 'Win64' / choice['pak_name'],
@@ -66,7 +66,7 @@ class BatchExport:
         """'Export whole list': every skin currently listed (after search and filters)."""
         ids = self._listed_cosmetic_ids()
         if not ids:
-            self.status_var.set('There are no skins in this list to export.'); return
+            self.status_var.set('No skins to export.'); return
         self._export_batch(ids)
 
     def _export_batch(self, ids=None):
@@ -74,11 +74,10 @@ class BatchExport:
         if not ids or self._busy or self._scanning: return
         formats = [ext for ext, var in self.format_vars.items() if var.get()]
         if not formats:
-            self.status_var.set('Pick at least one export format.'); return
+            self.status_var.set('Select at least one export format.'); return
         destination = Path(self.export_path_var.get())
         if not messagebox.askyesno('Export skins', f'Export {len(ids):,} skins to\n{destination}?\n\n'
-                                   'Each skin goes into a folder for its Legend or weapon. Skins that were already '
-                                   'exported are skipped. You can cancel at any time.', parent=self):
+                                   'Skins already exported are skipped.', parent=self):
             return
         rows = [self.catalog.get_cosmetic(i) for i in ids]
         jobs = [self._batch_job(r) for r in rows if r is not None]
@@ -106,8 +105,8 @@ class BatchExport:
                         model = decode_model(archive, asset, job['family'], stop=stop, allow_unresolved_family=True,
                                              first_lod_only=not all_lods)
                     if not model.material_family_resolved:
-                        skipped.append(f"{job['label']}: materials can't be read yet")
-                        self.events.put(('problem', cosmetic['name'], "Materials can't be read yet", cosmetic['skin_guid'], cosmetic['owner_name']))
+                        skipped.append(f"{job['label']}: materials not supported")
+                        self.events.put(('problem', cosmetic['name'], 'Materials not supported', cosmetic['skin_guid'], cosmetic['owner_name']))
                         continue
                     export_package(model, self.catalog, root, folder, job['label'], self._cosmetic_for_export(cosmetic),
                                    all_lods, None, overwrite=False, formats=formats)

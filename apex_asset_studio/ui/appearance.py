@@ -1,7 +1,7 @@
 """Validated, atomically saved appearance preferences and the glossy ttk theme.
 
-Every theme belongs to the same Frutiger-era family (glass, gloss and light) and differs in palette, type, button
-shape and its background picture (resources/backgrounds).
+Themes share one glossy glass look and differ in palette, type, button shape and background picture
+(resources/backgrounds).
 """
 import json
 import re
@@ -27,46 +27,47 @@ def _fontset(head=_SEMI, title=_SEMI, display=_LIGHT, ui=_UI, ui_size=10, title_
                 mono_small=_F(_MONO, 8))
 
 
-# Trebuchet headings and Tahoma-era softness for the XP-flavored Eco theme; Segoe UI Light titles for Metro.
+# Trebuchet headings for Meadow; Segoe UI Light titles for Glass.
 _ECO_HEAD = (('Trebuchet MS', 'bold'),) + _SEMI
 _METRO_TITLE = ('Segoe UI Light',) + _LIGHT
 
 
-def _theme(blurb, colors, backdrop, radius=6, shine=1.0, mascot_accent=False, fonts=None):
+def _theme(colors, backdrop, radius=6, shine=1.0, mascot_accent=False, fonts=None):
     """radius: corner radius of buttons and fields (None = capsule); shine: strength of the gloss highlight."""
-    return dict(blurb=blurb, colors=colors, fonts=fonts or _fontset(),
+    return dict(colors=colors, fonts=fonts or _fontset(),
                 fx=dict(backdrop=backdrop, radius=radius, shine=shine, mascot_accent=mascot_accent))
 
 
 STYLES = {
-    'Aero Night': _theme('Violet glass in your mascot’s color.',
-        dict(background='#0e0b16', surface='#141020', raised='#1e1830', border='#302746', text='#efecf6',
-             muted='#a9a1bd', accent='#e2373f', accent2='#ff8a3c', viewport='#0c0a13'), 'aero_night.jpg', mascot_accent=True),
-    'Aero Day': _theme('Blue glass in your mascot’s color.',
+    'Aero Day': _theme(
         dict(background='#e7eef8', surface='#fbfcfe', raised='#eff4fa', border='#c9d6e6', text='#16202d',
              muted='#4d5a6c', accent='#d42e38', accent2='#d9681a', viewport='#e2eaf5'), 'aero_day.jpg', mascot_accent=True),
-    'Frutiger Aqua': _theme('Sunlit water and gel buttons.',
+    'Aero Night': _theme(
+        dict(background='#0e0b16', surface='#141020', raised='#1e1830', border='#302746', text='#efecf6',
+             muted='#a9a1bd', accent='#e2373f', accent2='#ff8a3c', viewport='#0c0a13'), 'aero_night.jpg', mascot_accent=True),
+    'Aqua': _theme(
         dict(background='#dcf0f6', surface='#f5fbfd', raised='#e4f3f8', border='#b2d8e4', text='#0a2430',
              muted='#3d6170', accent='#0a85b8', accent2='#1fb5c9', viewport='#d4ecf4'), 'aqua.jpg', radius=None),
-    'Frutiger Eco': _theme('A meadow and city in summer.',
+    'Meadow': _theme(
         dict(background='#ecf4e4', surface='#fbfdf8', raised='#eef5e6', border='#c6dcb2', text='#1a2a12',
              muted='#4b6140', accent='#3f9b22', accent2='#2a8fc9', viewport='#e7f1dd'), 'eco.jpg', radius=8,
         fonts=_fontset(head=_ECO_HEAD, title=_ECO_HEAD)),
-    'Frutiger Metro': _theme('Glass towers, sharp corners.',
+    'Glass': _theme(
         dict(background='#e4f1f6', surface='#f7fbfd', raised='#eaf4f8', border='#bfd8e3', text='#0e2430',
              muted='#43616f', accent='#1a7fa8', accent2='#2f6fd6', viewport='#dfeef4'), 'metro.jpg', radius=2, shine=.55,
         fonts=_fontset(title=_METRO_TITLE, title_size=20)),
-    'Aurora': _theme('Emerald light and butterflies.',
+    'Aurora': _theme(
         dict(background='#06120d', surface='#0b1a13', raised='#12261c', border='#1f3a2c', text='#e6f5ee',
              muted='#8fb3a2', accent='#1fb36a', accent2='#4fd1c5', viewport='#05100b'), 'aurora.jpg'),
-    'Sunburst': _theme('Golden rays on deep olive.',
+    'Sunburst': _theme(
         dict(background='#14110a', surface='#1b170d', raised='#262012', border='#3a321c', text='#f7f1df',
              muted='#b8ad8c', accent='#e2b100', accent2='#ffd54a', viewport='#110e08'), 'sunburst.jpg'),
-    'Sweetheart': _theme('Magenta rays and red hearts.',
+    'Sweetheart': _theme(
         dict(background='#170c1c', surface='#1f1026', raised='#2b1735', border='#43264f', text='#fbeefc',
              muted='#c4a5c9', accent='#e8304a', accent2='#d660e0', viewport='#140a18'), 'sweetheart.jpg', radius=None),
 }
-DEFAULT_STYLE = 'Aero Night'
+DEFAULT_STYLE = 'Aero Day'
+RENAMED = {'Frutiger Aqua': 'Aqua', 'Frutiger Eco': 'Meadow', 'Frutiger Metro': 'Glass'}  # names used before 0.4
 STYLE_ORDER = list(STYLES)
 TEXT_SCALES = (('Small', .9), ('Normal', 1.0), ('Large', 1.15), ('Larger', 1.3), ('Largest', 1.5))
 
@@ -114,9 +115,9 @@ _HEX = re.compile(r'#[0-9a-fA-F]{6}')
 
 def normalize(value):
     value = value if isinstance(value, dict) else {}
-    preset = value.get('preset', DEFAULT_STYLE)
+    preset = RENAMED.get(value.get('preset', DEFAULT_STYLE), value.get('preset', DEFAULT_STYLE))
     if preset not in STYLES and preset != 'Custom': preset = DEFAULT_STYLE
-    base = value.get('base', DEFAULT_STYLE) if preset == 'Custom' else preset
+    base = RENAMED.get(value.get('base', DEFAULT_STYLE), value.get('base', DEFAULT_STYLE)) if preset == 'Custom' else preset
     if base not in STYLES: preset = base = DEFAULT_STYLE  # themes from older versions fall back to the default
     colors = dict(STYLES[base]['colors'])
     supplied = value.get('colors', {})

@@ -107,9 +107,9 @@ class AdvancedPage:
         page = self.diag_tab
         header = ttk.Frame(page)
         header.pack(fill='x', pady=(0, 12))
-        ttk.Label(header, text='Index health and the log of scans, loads and errors.', style='Muted.TLabel').pack(side='left')
+        ttk.Label(header, text='', style='Muted.TLabel').pack(side='left')
         widgets.tip(ttk.Button(header, text='Save bug report…', command=self.save_bug_report),
-                    'One ZIP with the logs, the problems list, your settings and system details, to attach to a bug report.').pack(side='right')
+                    'Logs, problems, settings and system info in one ZIP').pack(side='right')
         ttk.Button(header, text='Show failures', command=self.show_failures).pack(side='right', padx=6)
         ttk.Button(header, text='Refresh', style='Ghost.TButton', command=self.refresh_summary).pack(side='right')
         tiles = ttk.Frame(page)
@@ -133,7 +133,7 @@ class AdvancedPage:
         self.problems_count_var = tk.StringVar(value='')
         ttk.Label(top, textvariable=self.problems_count_var, style='Muted.Panel.TLabel').pack(side='left', padx=(8, 8))
         ttk.Button(top, text='Clear', style='Ghost.Panel.TButton', command=self._clear_problems).pack(side='right')
-        ttk.Label(problems_frame, text="Skins that couldn't be loaded or exported, and why. They stay here between sessions.",
+        ttk.Label(problems_frame, text='',
                   style='Muted.Panel.TLabel').pack(anchor='w', pady=(2, 6))
         table_frame = ttk.Frame(problems_frame, style='Panel.TFrame'); table_frame.pack(fill='both', expand=True)
         self.problems_table = ttk.Treeview(table_frame, columns=('skin', 'reason', 'when'), show='headings', height=5)

@@ -108,9 +108,9 @@ def swap_skin(context, path: Path):
     current = [o for o in context.scene.objects if o.type == 'MESH' and o.get('aas_model_guid')]
     selected = [o for o in context.selected_objects if o.type == 'MESH' and o.get('aas_model_guid')]
     targets = selected or current
-    if not targets: raise ValueError('Import a model first (or select it)')
+    if not targets: raise ValueError('Select an imported model')
     if guid and targets[0].get('aas_model_guid') != guid:
-        raise ValueError('That export is a different model, not a recolor of this one. Import it normally instead')
+        raise ValueError('Different model, not a recolor. Use Import instead')
     gltf = desc.get('gltf') or desc.get('model')
     model_path = (path.parent / gltf).resolve()
     if not model_path.exists(): raise ValueError('The export is missing its GLB/glTF file')

@@ -49,6 +49,9 @@ robocopy "%STAGE%\ApexAssetStudio\_internal" "%MASTER%\_internal" /mir /njh /njs
 if errorlevel 8 goto :fail
 copy /y blender_addon\ApexAssetStudio_Blender_5.2.zip "%MASTER%\" >nul
 
+echo Writing release ZIPs to %MASTER%\Releases
+.venv\Scripts\python.exe package_release.py || goto :fail
+
 rem Clean up: no leftover EXEs in Source (older builds used dist\ and build\native-preview\).
 rmdir /s /q "%STAGE%" 2>nul
 rmdir /s /q "%WORK%" 2>nul

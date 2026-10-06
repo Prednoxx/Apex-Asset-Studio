@@ -46,7 +46,7 @@ PRESETS = {
         _light('AREA', -135, 22, energy=900, size=.35, name='Rim Right'),
         _light('AREA', 0, 6, distance=3.0, energy=45, size=1.6, name='Front Fill')],
         _world((.02, .02, .025), (.015, .015, .02), (.005, .005, .005), .5)),
-    'DUAL': ('Dual Color', 'Two colored keys from either side (pick the colors below)', [
+    'DUAL': ('Dual Color', 'Two colored keys from either side', [
         _light('AREA', -65, 15, energy=850, size=.5, role='A', name='Color A'),
         _light('AREA', 65, 15, energy=850, size=.5, role='B', name='Color B'),
         _light('AREA', 0, 70, energy=90, size=1.0, name='Top')],
@@ -62,7 +62,7 @@ PRESETS = {
     'DAYLIGHT': ('Daylight', 'High midday sun and a clear blue sky', [
         _light('SUN', -30, 60, energy=5.0, color=(1.0, .97, .92), size=1.2, name='Sun')],
         _world((.25, .45, .9), (.72, .82, 1.0), (.22, .2, .18), .6)),
-    'OVERCAST': ('Overcast Soft', 'Big soft light from above, almost no shadows. Good for checking textures', [
+    'OVERCAST': ('Overcast Soft', 'Large soft light from above, almost no shadows', [
         _light('AREA', 0, 75, energy=320, size=3.0, name='Sky Panel')],
         _world((.62, .65, .7), (.75, .76, .78), (.3, .3, .3), .8)),
     'NIGHT': ('Moonlight', 'Cool blue moonlight with a warm lamp from the front', [
@@ -110,7 +110,7 @@ def lobby_lights(context):
         raise ValueError('Import an Apex Asset Studio export first')
     data = ((manifest.get('metadata') or {}).get('cosmetic') or {}).get('lobby_lighting')
     if not data or not data.get('lights'):
-        raise ValueError('This export has no lobby lighting. Re-export the skin with Apex Asset Studio 0.4 or newer')
+        raise ValueError('No lobby lighting in this export. Re-export with Apex Asset Studio 0.4 or newer')
     specs = []
     for name, light in data['lights'].items():
         if name not in LOBBY_LAYOUT or light['brightness'] <= 0: continue

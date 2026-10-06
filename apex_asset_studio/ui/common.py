@@ -7,16 +7,16 @@ from pathlib import Path
 from .. import __version__ as APP_VERSION
 
 APP_NAME = 'Apex Asset Studio'
-LOG_HINT = 'Details are in Advanced › Diagnostics.'
+LOG_HINT = 'See Advanced › Diagnostics.'
 
 FRIENDLY_ERRORS = (
-    ('is not supported', "This uses a game format the app can't read yet."),
-    ('unsupported', "This uses a game format the app can't read yet."),
-    ('ambiguous across', 'This item exists in more than one game package, so the right one is unclear.'),
-    ('no resolvable base RPak', "This item's game package wasn't found. Try scanning the library again."),
-    ('Material set unavailable', "This skin's materials can't be read yet, so it can't be exported."),
-    ('Permission', 'Windows blocked access to a file. Close anything using the export folder and try again.'),
-    ('No space', 'The drive is full.'),
+    ('is not supported', 'Unsupported game format.'),
+    ('unsupported', 'Unsupported game format.'),
+    ('ambiguous across', 'Asset found in more than one game package.'),
+    ('no resolvable base RPak', 'Game package not found. Rescan the library.'),
+    ('Material set unavailable', 'Materials not supported for this skin.'),
+    ('Permission', 'Access denied. Close programs using the export folder and retry.'),
+    ('No space', 'Disk full.'),
     ('FileExistsError', 'An export with this name already exists.'),
 )
 
@@ -25,7 +25,7 @@ def friendly_error(text):
     """Plain-language summary for the status bar; the technical text still goes to the diagnostics log."""
     for needle, message in FRIENDLY_ERRORS:
         if needle.lower() in text.lower(): return message
-    return f'Something went wrong. {LOG_HINT}'
+    return f'{LOG_HINT}'
 
 
 SHORTCUTS = (('Ctrl+F', 'Search the library'), ('Ctrl+1 … 3', 'Switch page'), ('Space', 'Play / pause animation'),
