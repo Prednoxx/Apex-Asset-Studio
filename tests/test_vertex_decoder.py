@@ -67,6 +67,14 @@ class VertexDecoderTests(unittest.TestCase):
                             for a, b in zip(ref.tangents, fast.tangents):
                                 for x, y in zip(a, b): self.assertAlmostEqual(x, y, places=12)
 
+    def test_empty_mesh_without_vertex_format(self):
+        # lower LODs can hold empty meshes whose vertex flags are all zero; the reference decoder accepts them
+        g = Buffer(b'\0' * 64)
+        for decoder in (decode_vertices_reference, decode_vertices):
+            mesh = Mesh('m', 0)
+            decoder(mesh, g, 0, 0, 0, 0, 0, [], 0, 0)
+            self.assertEqual((mesh.positions, mesh.weights, mesh.uvs), ([], [], []))
+
     def test_speed(self):
         import time
         rng = random.Random(7)

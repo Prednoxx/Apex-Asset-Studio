@@ -1173,10 +1173,23 @@ class ApexAssetStudioApp(tk.Tk):
                     self._set_busy(False)
                     if serial != self._selection_serial: continue
                     if getattr(self, '_loading', False): self._set_loading(False)
-                    if self._model: self._render_model()
+                    message = friendly_error(error)
+                    if self._model:
+                        lod = int(self.lod_var.get().split()[-1])
+                        if lod not in self._model.lods:
+                            # the extra detail levels failed: stay on what is decoded and stop offering the rest,
+                            # so picking the LOD again can't start the same failing load in a loop
+                            self._wanted_lod = None
+                            self._model.partial = False
+                            self._model.lod_levels = sorted(self._model.lods)
+                            self.lod_choice.configure(values=[f'LOD {x}' for x in self._model.lod_levels], state='readonly')
+                            self.lod_var.set(f'LOD {min(self._model.lods)}')
+                            message = f"Couldn't load LOD {lod}. {message}"
+                        self.lod_choice.configure(state='readonly')
+                        self._render_model()
                     else: self.preview.clear('Preview unavailable')
-                    self._set_simple_info(friendly_error(error))
-                    self.status_var.set(friendly_error(error))
+                    self._set_simple_info(message)
+                    self.status_var.set(message)
                     self._log(error)
                 elif event[0] == 'storage':
                     self._show_storage(*event[1:])

@@ -195,6 +195,9 @@ def unpack_tangents(values, normals):
 
 def decode_vertices(mesh, g, base, vc, stride, vf, flags, states, extra_base, es):
     """Decode a whole vertex buffer at once with numpy (same results as decode_vertices_reference)."""
+    if vc == 0:  # empty meshes (common in lower LODs) carry no vertex format; nothing to check or decode
+        mesh.positions, mesh.packed_normals, mesh.normals, mesh.tangents, mesh.uvs, mesh.weights = [], [], [], [], [], []
+        return
     if base < 0 or base + vc * stride > len(g.data): raise ValueError('model read outside buffer')
     raw = np.frombuffer(g.data, dtype=np.uint8, count=vc * stride, offset=base).reshape(vc, stride)
     def field(start, size, dtype):
@@ -395,7 +398,14 @@ def decode_model(archive, asset, family=None, stop=None, allow_unresolved_family
                 indices = index_array.tolist()
                 mesh = Mesh(f'mesh_{mesh_id}', mesh_materials[mesh_id], indices=indices)
                 mesh.uv_indices = uv_channel_indices(vf)
-                decode_vertices(mesh, g, mp + 24 + vo, vc, stride, vf, flags, states, mp + 32 + eo, es)
+                args = (g, mp + 24 + vo, vc, stride, vf, flags, states, mp + 32 + eo, es)
+                try:
+                    decode_vertices(mesh, *args)
+                except Exception as fast_error:
+                    # safety net: if the fast path ever disagrees with the format, fall back to the reference decoder
+                    mesh.positions, mesh.packed_normals, mesh.normals, mesh.tangents, mesh.colors, mesh.uvs, mesh.weights = [], [], [], [], [], [], []
+                    decode_vertices_reference(mesh, *args)
+                    warnings.append(f'{mesh.name} (LOD {level}) used the slow vertex decoder: {fast_error}')
                 meshes.append(mesh)
             lods[level] = meshes
     if not any(mesh.positions and mesh.indices for meshes in lods.values() for mesh in meshes):
