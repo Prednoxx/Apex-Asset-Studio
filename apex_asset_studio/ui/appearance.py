@@ -3,7 +3,7 @@ import json
 import re
 from pathlib import Path
 
-SETTINGS_VERSION = 4
+SETTINGS_VERSION = 5
 
 # A style is a full aesthetic: palette, typefaces and decoration ("fx").
 # accent = primary color (selection, main action); accent2 = secondary (data, HUD lines, tags).
@@ -129,8 +129,35 @@ STYLES.update({
         dict(background='#ffffff', surface='#fff8fb', raised='#fdebf3', border='#f5d2e3', text='#3b2d38',
              muted='#937f8d', accent='#f0609e', accent2='#3aa0ec', viewport='#fdf1f7', ink='#ffffff')),
 })
+_AERO_UI = ('Segoe UI', 'Noto Sans', 'M PLUS 1p')
+_AERO_SEMI = (('Segoe UI Semibold', 'normal'), ('Noto Sans', 'bold'), ('M PLUS 1p', 'bold'))
+_AERO_LIGHT = ('Segoe UI Light', 'Segoe UI', 'Noto Sans', 'M PLUS 1p Light')
+_AERO_FONTS = _fontset(_AERO_UI, _AERO_SEMI, ('Cascadia Mono', 'Consolas', 'DejaVu Sans Mono'), ui_size=10,
+                       title_size=20, display_size=34, mono_size=9)
+_AERO_FONTS.update(title=_F(_AERO_SEMI, 18), brand=_F(_AERO_SEMI, 13), nav=_F(_AERO_UI, 11), strong=_F(_AERO_SEMI, 10),
+                   section=_F(_AERO_SEMI, 10), placeholder=_F(_AERO_LIGHT, 22), display=_F(_AERO_LIGHT, 34),
+                   stat=_F(_AERO_LIGHT, 26), data=_F(_AERO_UI, 10))
+
+
+def _aero(blurb, colors):
+    return dict(blurb=blurb, colors=colors, fonts=_AERO_FONTS,
+                fx=dict(gloss=True, glitch=False, ornament='none', tag='aero', button='gloss', floor='aero', scanlines=False,
+                        upper=False, show_jp=False, nav='{label}', cat_prefix='', hud=None, brackets=False,
+                        mascot_accent=True, signal=('No skin selected', ''), boot=('Starting', 'Ready')))
+
+
+STYLES.update({
+    'Aero Night': _aero('Glossy glass in the Frutiger Aero spirit, dark. Accent color follows your mascot.',
+        dict(background='#0b0d12', surface='#11141b', raised='#1b202b', border='#2b3240', text='#eef1f6',
+             muted='#a3acba', accent='#e2373f', accent2='#ff8a3c', viewport='#0a0c10')),
+    'Aero Day': _aero('The same glossy glass look on a light sky backdrop.',
+        dict(background='#e9eff6', surface='#fbfcfe', raised='#f0f4f9', border='#cdd7e3', text='#18202c',
+             muted='#4f5b6c', accent='#d42e38', accent2='#d9681a', viewport='#e4ebf3')),
+})
 PRESETS = {name: style['colors'] for name, style in STYLES.items()}
-DEFAULT_STYLE = 'Neon Cybercore'
+DEFAULT_STYLE = 'Aero Night'
+STYLE_ORDER = ['Aero Night', 'Aero Day'] + [name for name in STYLES if not name.startswith('Aero')]
+TEXT_SCALES = (('Small', .9), ('Normal', 1.0), ('Large', 1.15), ('Larger', 1.3), ('Largest', 1.5))
 
 
 def rarity(t):
@@ -139,14 +166,19 @@ def rarity(t):
     return {'common': '#7d7a86', 'rare': '#1d87cf', 'epic': '#9147cf', 'legendary': '#c98a00',
             'mythic': '#e0335a', 'heirloom': '#e0335a', 'iconic': '#e0335a'}
 DEFAULT_PRESET = DEFAULT_STYLE
-ACTIVE = {'style': DEFAULT_STYLE}
+ACTIVE = {'style': DEFAULT_STYLE, 'scale': 1.0, 'contrast': False, 'reduce': False, 'mascot_accent': None}
 
 
 def style(name=None):
     return STYLES.get(name or ACTIVE['style'], STYLES[DEFAULT_STYLE])
 
 
-def fx(): return style()['fx']
+def fx():
+    base = style()['fx']
+    if not ACTIVE.get('reduce'): return base
+    calm = dict(base, glitch=False, scanlines=False, shadow=None)
+    if calm.get('floor') not in (None, 'none'): calm['floor'] = 'plain'
+    return calm
 
 
 def jp(text):
@@ -185,7 +217,20 @@ def normalize(value):
                 layout=layout if layout in LAYOUTS else LAYOUTS[0],
                 mascot_path=value.get('mascot_path', '') if isinstance(value.get('mascot_path', ''), str) else '',
                 show_mascot=value.get('show_mascot', True) is not False,
-                scanlines=STYLES[base]['fx']['scanlines'] if scan is None else scan is not False)
+                scanlines=STYLES[base]['fx']['scanlines'] if scan is None else scan is not False,
+                text_scale=value.get('text_scale') if value.get('text_scale') in dict(TEXT_SCALES).values() else 1.0,
+                high_contrast=value.get('high_contrast') is True, reduce_effects=value.get('reduce_effects') is True,
+                mascot_accent=value.get('mascot_accent', True) is not False)
+
+
+def effective_colors(value):
+    """Palette after the 'match accent to mascot' option (named styles that allow it only)."""
+    colors = dict(value['colors'])
+    accent = ACTIVE.get('mascot_accent')
+    if accent and value.get('mascot_accent', True) and value.get('preset') != 'Custom' and STYLES[value['base']]['fx'].get('mascot_accent'):
+        from .gloss import companion
+        colors['accent'] = accent; colors['accent2'] = companion(accent)
+    return colors
 
 
 def load(path):
@@ -216,9 +261,29 @@ def luminance(color):
     return .2126*r + .7152*g + .0722*b
 
 
+def contrast(a, b):
+    la, lb = luminance(a), luminance(b)
+    return (max(la, lb) + .05) / (min(la, lb) + .05)
+
+
+def readable(color, against, minimum, toward):
+    """Move color toward `toward` until it reaches the contrast minimum against `against`."""
+    if contrast(color, against) >= minimum: return color
+    for step in range(1, 21):
+        candidate = mix(toward, color, step / 20)
+        if contrast(candidate, against) >= minimum: return candidate
+    return toward
+
+
 def tokens(colors):
-    """Full token set including derived values."""
+    """Full token set including derived values, with text contrast enforced (WCAG AA, or AAA in high contrast)."""
     t = dict(STYLES[DEFAULT_STYLE]['colors']); t.update(colors)
+    hc = ACTIVE.get('contrast')
+    for surface in ('surface', 'background'):
+        t['muted'] = readable(t['muted'], t[surface], 7 if hc else 4.6, t['text'])
+    if hc:
+        t['border'] = mix(t['text'], t['surface'], .45)
+        t['text'] = readable(t['text'], t['surface'], 12, '#ffffff' if luminance(t['surface']) < .5 else '#000000')
     t['selection'] = t['accent']
     dark_text = t['background'] if luminance(t['background']) < .1 else t['text']
     t['selection_text'] = dark_text if luminance(t['accent']) > .18 else '#ffffff'
@@ -238,6 +303,12 @@ def tokens(colors):
     t['viewport_mid'] = mix('#ffffff', t['viewport'], .018)
     if t['light']:
         t['faint'] = mix(t['muted'], t['surface'], .7)
+    t['faint'] = readable(t['faint'], t['surface'], 4.5 if hc else 3.0, t['text'])
+    if style()['fx'].get('gloss'):
+        t['selection'] = mix(t['accent'], t['surface'], .62 if not t['light'] else .22)
+        t['selection_text'] = '#ffffff' if contrast('#ffffff', t['selection']) >= contrast(t['text'], t['selection']) else t['text']
+        t['accent_text'] = '#ffffff' if contrast('#ffffff', t['accent']) >= 3.6 else '#141414'
+        t['hover'] = mix(t['accent'], t['raised'], .14)
     return t
 
 
@@ -260,7 +331,8 @@ def register_bundled_fonts():
 def fonts(app, name=None):
     """Font tuples for a style (the active one by default), resolved against installed families."""
     name = name if name in STYLES else ACTIVE['style']
-    if name in _FONT_CACHE: return _FONT_CACHE[name]
+    scale = ACTIVE.get('scale', 1.0); key_ = (name, scale)
+    if key_ in _FONT_CACHE: return _FONT_CACHE[key_]
     from tkinter import font
     if '_families' not in _FONT_CACHE: _FONT_CACHE['_families'] = set(font.families(app))
     families = _FONT_CACHE['_families']
@@ -268,9 +340,18 @@ def fonts(app, name=None):
     for key, (candidates, size, weight) in STYLES[name]['fonts'].items():
         options = [c if isinstance(c, tuple) else (c, weight) for c in candidates]
         family, chosen = next(((fam, wt) for fam, wt in options if fam in families), ('TkDefaultFont', weight))
+        size = max(6, round(size * scale))
         resolved[key] = (family, size, chosen) if chosen != 'normal' else (family, size)
-    _FONT_CACHE[name] = resolved
+    _FONT_CACHE[key_] = resolved
     return resolved
+
+
+def face_crop(image, default=True):
+    """Square crop around the face: tuned for the bundled art, top-center for other images."""
+    w, h = image.size
+    if default: return image.crop((int(w*.25), int(h*.01), int(w*.87), int(h*.01 + w*.62)))
+    side = int(min(w, h) * .6); left = (w - side) // 2
+    return image.crop((left, 0, left + side, side))
 
 
 def avatar(image, size, ring, default=True):
@@ -336,6 +417,76 @@ def _images(app, c):
 
 
 _ELEMENTS = set()
+_DEFAULT_LAYOUTS = {}
+
+
+def _gloss_images(app, c, f):
+    import tkinter as tk
+    from tkinter import font as tkfont
+    from . import gloss
+    dark = not c['light']
+    # Images are exactly the widgets' natural height: ttk tiles (not stretches) an image element's middle,
+    # so a taller widget would repeat the gradient as stripes.
+    bh = tkfont.Font(font=f['strong']).metrics('linespace') + 14
+    fh = tkfont.Font(font=f['body']).metrics('linespace') + 14
+    neutral = gloss.shade(c['raised'], .10 if dark else -.02)
+    out = {}
+    for state in ('normal', 'hover', 'pressed', 'disabled'):
+        out[f'button_{state}'] = gloss.pill(40, bh, neutral, state, radius=6, dark=dark)
+        out[f'accent_{state}'] = gloss.pill(40, bh, c['accent'], state, radius=6, dark=dark)
+    out['field'] = gloss.field(40, fh, c['raised'], c['border'])
+    out['field_focus'] = gloss.field(40, fh, c['raised'], c['border'], focus=c['accent'])
+    out['field_disabled'] = gloss.field(40, fh, c['surface'], c['border'])
+    objects = getattr(app, '_aas_gloss_objects', {}); names = {}
+    for key, image in out.items():
+        if key in objects: objects[key].configure(data=_png(image))
+        else: objects[key] = tk.PhotoImage(name=f'aasg_{key}', data=_png(image), master=app)
+        names[key] = f'aasg_{key}'
+    app._aas_gloss_objects = objects
+    return names
+
+
+def _gloss(style, c, f, enabled, app):
+    for name in ('TButton', 'TEntry', 'TCombobox'):
+        _DEFAULT_LAYOUTS.setdefault(name, style.layout(name))
+    if not enabled:
+        for name in ('TButton', 'Accent.TButton', 'Ghost.TButton', 'Ghost.Panel.TButton', 'Nav.TButton', 'NavActive.TButton'):
+            style.layout(name, _DEFAULT_LAYOUTS['TButton'])
+        style.layout('TEntry', _DEFAULT_LAYOUTS['TEntry']); style.layout('TCombobox', _DEFAULT_LAYOUTS['TCombobox'])
+        return
+    n = _gloss_images(app, c, f)
+    if 'gloss' not in _ELEMENTS:
+        for kind in ('button', 'accent'):
+            style.element_create(f'AASG.{kind}', 'image', n[f'{kind}_normal'], ('disabled', n[f'{kind}_disabled']),
+                                 ('pressed', n[f'{kind}_pressed']), ('active', n[f'{kind}_hover']), ('focus', n[f'{kind}_hover']), border=(10, 4, 10, 4), sticky='nsew')
+        style.element_create('AASG.field', 'image', n['field'], ('disabled', n['field_disabled']), ('focus', n['field_focus']),
+                             border=(8, 4, 8, 4), sticky='nsew')
+        _ELEMENTS.add('gloss')
+    def button(element):
+        return [(element, {'sticky': 'nswe', 'children': [('Button.padding', {'sticky': 'nswe', 'children': [
+            ('Button.label', {'sticky': 'nswe'})]})]})]
+    style.layout('TButton', button('AASG.button')); style.layout('Accent.TButton', button('AASG.accent'))
+    for flat in ('Ghost.TButton', 'Ghost.Panel.TButton', 'Nav.TButton', 'NavActive.TButton'):
+        style.layout(flat, _DEFAULT_LAYOUTS['TButton'])
+    style.configure('Treeview.Heading', foreground=c['muted'], font=f['section'])
+    for prefix in ('', 'Panel.', 'Card.'):
+        style.configure(f'Section.{prefix}TLabel', foreground=c['muted'], font=f['small'])
+        style.configure(f'Data.{prefix}TLabel', foreground=c['muted'])
+    style.configure('Status.TLabel', font=f['small'])
+    style.map('Ghost.TButton', foreground=[('disabled', c['faint']), ('active', c['text'])])
+    style.map('Ghost.Panel.TButton', foreground=[('disabled', c['faint']), ('active', c['text'])])
+    style.layout('TEntry', [('AASG.field', {'sticky': 'nswe', 'children': [('Entry.padding', {'sticky': 'nswe', 'children': [
+        ('Entry.textarea', {'sticky': 'nswe'})]})]})])
+    style.layout('TCombobox', [('AASG.field', {'sticky': 'nswe', 'children': [
+        ('Combobox.downarrow', {'side': 'right', 'sticky': 'ns'}),
+        ('Combobox.padding', {'expand': '1', 'sticky': 'nswe', 'children': [('Combobox.textarea', {'sticky': 'nswe'})]})]})])
+    style.configure('TButton', padding=(12, 3), foreground=c['text'], background=c['background'])
+    style.map('TButton', foreground=[('disabled', c['faint'])], background=[])
+    style.configure('Accent.TButton', padding=(16, 3), foreground=c['accent_text'])
+    style.map('Accent.TButton', foreground=[('disabled', c['faint'])], background=[])
+    style.configure('TEntry', padding=(4, 3)); style.configure('TCombobox', padding=(4, 3), background=c['raised'],
+                                                                   arrowcolor=c['muted'], arrowsize=12)
+    style.map('TCombobox', background=[('active', c['raised'])])
 
 
 def _elements(style, n):
@@ -355,7 +506,9 @@ def apply(app, value):
     from tkinter import ttk, font
     import tkinter as tk
     ACTIVE['style'] = value.get('base') or DEFAULT_STYLE
-    c = tokens(value['colors']); f = fonts(app)
+    ACTIVE['scale'] = value.get('text_scale', 1.0); ACTIVE['contrast'] = value.get('high_contrast', False)
+    ACTIVE['reduce'] = value.get('reduce_effects', False)
+    c = tokens(effective_colors(value)); f = fonts(app)
     style = ttk.Style(app); style.theme_use('clam')
     _elements(style, _images(app, c))
     app.configure(background=c['background'])
@@ -455,7 +608,7 @@ def apply(app, value):
     for name, bg in (('Treeview', c['surface']), ('Sidebar.Treeview', c['background'])):
         style.configure(name, background=bg, fieldbackground=bg, foreground=c['text'], rowheight=max(28, font.Font(font=f['body']).metrics('linespace') + 12),
                         borderwidth=0, relief='flat', bordercolor=bg, lightcolor=bg, darkcolor=bg, font=f['body'], indent=14)
-        style.map(name, background=[('selected', c['accent'])], foreground=[('selected', c['accent_text'])])
+        style.map(name, background=[('selected', c['selection'])], foreground=[('selected', c['selection_text'])])
         style.layout(name, [('Treeview.treearea', {'sticky': 'nswe'})])
     style.configure('Treeview.Heading', background=c['surface'], foreground=c['accent2'], relief='flat', padding=(10, 7),
                     font=f['mono_small'], bordercolor=c['border'], lightcolor=c['surface'], darkcolor=c['surface'])
@@ -488,6 +641,7 @@ def apply(app, value):
         style.layout(f'{prefix}Horizontal.TScale', [('AASPanel.trough' if prefix else 'AAS.trough', {'sticky': 'ew', 'children': [
             ('AAS.slider', {'side': 'left', 'sticky': ''})]})])
         style.configure(f'{prefix}Horizontal.TScale', background=bg, sliderlength=10)
+    _gloss(style, c, f, bool(fx().get('gloss')), app)
     style.configure('TPanedwindow', background=c['border'])
     style.configure('Sash', sashthickness=1, background=c['border'], gripcount=0)
 
@@ -502,6 +656,8 @@ def apply(app, value):
             widget.configure(background=c['background'], highlightthickness=0)
         elif isinstance(widget, tk.Toplevel):
             widget.configure(background=c['background'])
+        elif isinstance(widget, (ttk.Entry, ttk.Combobox, ttk.Spinbox)):
+            widget.configure(font=f['body'])
         for child in widget.winfo_children(): visit(child)
     visit(app)
     app.preview.set_palette(c['viewport'], c['text'], c['muted'], grid=c[fx().get('floor_color', 'accent')], hud=c['accent2'],

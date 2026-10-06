@@ -222,6 +222,24 @@ class ModelPreview(OpenGLFrame):
                 GL.glColor3f(*line(.42)); GL.glVertex2f(i*.32,-1)
             GL.glColor3f(*line(.55)); GL.glVertex2f(-1,horizon); GL.glVertex2f(1,horizon)
             GL.glEnd()
+        elif floor=='aero':
+            # Frutiger Aero backdrop: soft accent glow, translucent light ribbons and bokeh
+            GL.glEnable(GL.GL_BLEND); GL.glBlendFunc(GL.GL_SRC_ALPHA,GL.GL_ONE_MINUS_SRC_ALPHA)
+            g=_linear(grid); h2=_linear(hud)
+            for cx,cy,rx,ry,col,alpha in ((.0,-1.05,1.4,.85,g,.17),(.85,.8,.9,.7,h2,.08)):
+                GL.glBegin(GL.GL_TRIANGLE_FAN); GL.glColor4f(*col,alpha); GL.glVertex2f(cx,cy)
+                GL.glColor4f(*col,0)
+                for k in range(41):
+                    ang=k/40*math.tau; GL.glVertex2f(cx+rx*math.cos(ang),cy+ry*math.sin(ang))
+                GL.glEnd()
+            for i,(base,amp,phase,thick,alpha) in enumerate(((-.35,.16,.4,.05,.10),(-.48,.12,1.9,.025,.14),(-.2,.2,3.1,.012,.18))):
+                GL.glBegin(GL.GL_TRIANGLE_STRIP)
+                for k in range(61):
+                    x=-1+k/30; y=base+amp*math.sin(x*2.2+phase)
+                    fade=alpha*(1-abs(x)*.55)
+                    GL.glColor4f(1,1,1,fade); GL.glVertex2f(x,y+thick); GL.glColor4f(1,1,1,0); GL.glVertex2f(x,y-thick*2.5)
+                GL.glEnd()
+            GL.glDisable(GL.GL_BLEND)
         elif floor=='promo':
             # airy promo backdrop: hexagon outlines on the right, soft floating squares, dotted rain lines lower-left
             size=.075; dx=size*1.732; GL.glBegin(GL.GL_LINES)

@@ -186,7 +186,9 @@ class SectionTag(_Base):
 
     def redraw(self, t):
         self.t = t; self.delete('all'); self.configure(background=t[self.on])
-        f = self.fonts(); fx = appearance.fx(); w = max(self.winfo_width(), 1); h = 22; mid = h / 2
+        f = self.fonts(); fx = appearance.fx(); w = max(self.winfo_width(), 1)
+        h = max(22, _line(f['section']) + 6); mid = h / 2
+        if int(self.cget('height')) != h: self.configure(height=h)
         text = self.text.upper() if fx['upper'] else self.text
         label = _measure(f['section'], text)
         kind = fx['tag']
@@ -194,6 +196,11 @@ class SectionTag(_Base):
             x1 = label + 20
             self.create_polygon(0, 3, x1, 3, x1 - 6, h - 3, 0, h - 3, fill=t['accent2'], outline='')
             self.create_text(7, mid, text=text, anchor='w', fill=t['accent2_text'], font=f['section'])
+        elif kind == 'aero':
+            self._orb = _orb_image(10, t['accent'])
+            self.create_image(5, mid, image=self._orb)
+            self.create_text(16, mid, text=text, anchor='w', fill=t['text'], font=f['section'])
+            x1 = label + 16
         elif kind == 'underline':
             self.create_text(0, mid - 1, text=text, anchor='w', fill=t['accent'], font=f['section'])
             x1 = label
@@ -220,6 +227,11 @@ class SectionTag(_Base):
             self.create_text(x, mid, text=sub, anchor='w', fill=t['muted'], font=f['jp'])
             x += _measure(f['jp'], sub) + 10
         if x >= w - 10: return
+        if kind == 'aero':
+            steps = 24; span = (w - x) / steps
+            for i in range(steps):
+                self.create_line(x + i*span, mid, x + (i+1)*span + 1, mid, fill=appearance.mix(t['border'], t[self.on], 1 - i/steps))
+            return
         if kind == 'underline':
             self.create_rectangle(0, h - 2, w, h - 1, fill=t['accent'], outline='')
             rng = random.Random(len(self.text))
@@ -249,7 +261,7 @@ class NeonButton(_Base):
     """Primary action button shaped by the active style. Mimics ttk's state()/instate()."""
     def __init__(self, master, text, command=None, jp='', on='surface', width=210, height=40, **kwargs):
         super().__init__(master, on=on, width=width, height=height, cursor='hand2', **kwargs)
-        self.text = text; self.jp = jp; self.command = command
+        self.text = text; self.jp = jp; self.command = command; self.base_height = height
         self._disabled = False; self._hover = False; self._pressed = False
         self.bind('<Enter>', lambda _e: self._set(hover=True)); self.bind('<Leave>', lambda _e: self._set(hover=False, pressed=False))
         self.bind('<ButtonPress-1>', lambda _e: self._set(pressed=True))
@@ -279,13 +291,24 @@ class NeonButton(_Base):
     def redraw(self, t):
         self.t = t; self.delete('all'); self.configure(background=t[self.on])
         f = self.fonts(); fx = appearance.fx(); kind = fx['button']
-        w, h = max(self.winfo_width(), 1), max(self.winfo_height(), 1)
+        want = max(self.base_height, _line(f['nav']) + 14)
+        if int(self.cget('height')) != want: self.configure(height=want)
+        w, h = max(self.winfo_width(), int(self.cget('width')) if self.winfo_width() < 20 else 1), want
         text = self.text.upper() if fx['upper'] else self.text
         if self._disabled:
             fill, edge, ink = t['surface'], t['border'], t['faint']
         else:
             fill = t['accent2'] if self._hover and not self._pressed else t['accent']
             edge = fill; ink = t['accent2_text'] if self._hover and not self._pressed else t['accent_text']
+        if kind == 'gloss':
+            from PIL import ImageTk
+            from . import gloss
+            state = 'disabled' if self._disabled else 'pressed' if self._pressed else 'hover' if self._hover else 'normal'
+            self._img = ImageTk.PhotoImage(gloss.pill(w, h, t['accent'], state, radius=8, dark=not t['light']), master=self)
+            self.create_image(0, 0, image=self._img, anchor='nw')
+            ink = t['faint'] if self._disabled else t['accent_text']
+            self.create_text(w / 2, h / 2, text=text, fill=ink, font=f['strong'])
+            return
         if kind == 'flat':
             if not self._disabled and self._hover: fill = t['accent2']
             self.create_rectangle(0, 0, w, h, fill=fill, outline=edge if self._disabled else '')
@@ -331,6 +354,114 @@ class NeonButton(_Base):
             self.create_text(tx + _measure(f['nav'], text) + 8, cy + 1, text=sub, anchor='w', fill=ink, font=f['jp'])
 
 
+_ORBS = {}
+
+
+def _orb_image(size, color):
+    from PIL import ImageTk
+    key = (size, color)
+    if key not in _ORBS:
+        from . import gloss
+        im = gloss.pill(size, size, color, 'normal', radius=size // 2)
+        _ORBS[key] = ImageTk.PhotoImage(im)
+    return _ORBS[key]
+
+
+class HeaderBar(tk.Canvas):
+    """Glossy Aero title bar drawn on one canvas: mascot orb, app name, page tabs, game status and Scan button.
+
+    The app supplies callbacks: pages() -> [(key, label, active)], on_page(key), scan() -> (label, enabled),
+    on_scan(), game() -> (ok, label), on_game().
+    """
+    HEIGHT = 62
+
+    def __init__(self, master, app, **callbacks):
+        super().__init__(master, height=self.HEIGHT, highlightthickness=0, borderwidth=0)
+        self.app = app; self.cb = callbacks; self.t = None; self.hover = None; self.hits = []; self._bg_key = None
+        _registry(self.winfo_toplevel()).append(self)
+        self.bind('<Configure>', lambda _e: self.t and self.redraw(self.t))
+        self.bind('<Motion>', self._motion); self.bind('<Leave>', lambda _e: self._set_hover(None))
+        self.bind('<ButtonRelease-1>', self._click)
+
+    def _background(self, t, w, h):
+        from PIL import ImageTk
+        from . import gloss
+        key = (w, h, t['background'], t['accent'], t['light'])
+        if key == self._bg_key: return
+        top = gloss.rgb(appearance.mix(t['accent'], t['background'], .16 if not t['light'] else .08))
+        bottom = gloss.rgb(t['background'])
+        image = gloss._vgradient((w, h), top, bottom)
+        image.alpha_composite(gloss.swoosh((w, h), t['accent2'], seed=3, alpha=45 if not t['light'] else 60))
+        image.alpha_composite(gloss.bokeh((w, h), t['accent'], 10, 9, 6, 26, alpha=(10, 28)))
+        sheen = gloss._vgradient((w, h // 2), (255, 255, 255, 26 if not t['light'] else 90), (255, 255, 255, 0))
+        image.alpha_composite(sheen)
+        self._bg = ImageTk.PhotoImage(image, master=self); self._bg_key = key
+
+    def redraw(self, t):
+        from PIL import ImageTk
+        from . import gloss
+        self.t = t; self.delete('all'); self.hits = []
+        f = appearance.fonts(self); w = max(self.winfo_width(), 1)
+        h = max(self.HEIGHT, _line(f['brand']) + _line(f['small']) + 22, _line(f['nav']) + 30)
+        if int(self.cget('height')) != h: self.configure(height=h)
+        self._background(t, w, h)
+        self.create_image(0, 0, image=self._bg, anchor='nw')
+        self.create_line(0, h - 1, w, h - 1, fill=appearance.mix(t['accent'], t['border'], .35))
+        x = 14
+        orb = AVATAR.get('orb')
+        if orb: self.create_image(x, h / 2, image=orb, anchor='w'); x += orb.width() + 12
+        block = _line(f['brand']) + _line(f['small']); top = (h - block) / 2
+        self.create_text(x, top, text='Apex Asset Studio', anchor='nw', fill=t['text'], font=f['brand'])
+        self.create_text(x + 1, top + _line(f['brand']), text=f"v{AVATAR.get('version', '')}", anchor='nw', fill=t['muted'], font=f['small'])
+        x += _measure(f['brand'], 'Apex Asset Studio') + 34
+        self._pills = []
+        for key, label, active in self.cb['pages']():
+            tw = _measure(f['nav'], label) + 30; ph = _line(f['nav']) + 14; y0 = (h - ph) / 2
+            if active or self.hover == ('page', key):
+                color = t['accent'] if active else gloss.shade(t['raised'], .12 if not t['light'] else -.03)
+                img = ImageTk.PhotoImage(gloss.pill(tw, ph, color, 'normal', radius=8, dark=not t['light']), master=self)
+                self._pills.append(img); self.create_image(x, y0, image=img, anchor='nw')
+            ink = t['accent_text'] if active else (t['text'] if self.hover == ('page', key) else t['muted'])
+            self.create_text(x + tw / 2, h / 2, text=label, fill=ink, font=f['nav'])
+            self.hits.append(((x, y0, x + tw, y0 + ph), ('page', key))); x += tw + 6
+        # right side: scan button then game status
+        label, enabled = self.cb['scan']()
+        bw = _measure(f['strong'], label) + 34; bh = _line(f['strong']) + 14; bx = w - 14 - bw; by = (h - bh) / 2
+        state = 'disabled' if not enabled else 'hover' if self.hover == ('scan',) else 'normal'
+        img = ImageTk.PhotoImage(gloss.pill(bw, bh, gloss.shade(t['raised'], .14 if not t['light'] else -.02), state, radius=8,
+                                            dark=not t['light']), master=self)
+        self._pills.append(img); self.create_image(bx, by, image=img, anchor='nw')
+        self.create_text(bx + bw / 2, h / 2, text=label, fill=t['text'] if enabled else t['faint'], font=f['strong'])
+        if enabled: self.hits.append(((bx, by, bx + bw, by + bh), ('scan',)))
+        ok, game = self.cb['game']()
+        gx = bx - 16
+        self.create_text(gx, h / 2, text=game, anchor='e', fill=t['text'] if self.hover == ('game',) else t['muted'], font=f['small'])
+        gw = _measure(f['small'], game)
+        dot = t['accent2'] if ok else t['warn']
+        self.create_oval(gx - gw - 16, h / 2 - 4, gx - gw - 8, h / 2 + 4, fill=dot, outline='')
+        self.hits.append(((gx - gw - 18, h / 2 - 12, gx, h / 2 + 12), ('game',)))
+        self.configure(cursor='hand2' if self.hover else '')
+
+    def _hit(self, event):
+        for (x0, y0, x1, y1), target in self.hits:
+            if x0 <= event.x <= x1 and y0 <= event.y <= y1: return target
+        return None
+
+    def _set_hover(self, target):
+        if target != self.hover:
+            self.hover = target
+            if self.t: self.redraw(self.t)
+
+    def _motion(self, event): self._set_hover(self._hit(event))
+
+    def _click(self, event):
+        target = self._hit(event)
+        if not target: return
+        if target[0] == 'page': self.cb['on_page'](target[1])
+        elif target[0] == 'scan': self.cb['on_scan']()
+        else: self.cb['on_game']()
+
+
 class Bracket(_Base):
     """One viewport corner mark. corner is 'nw', 'ne', 'sw' or 'se'."""
     def __init__(self, master, corner, size=16, color='accent2', on=None, **kwargs):
@@ -340,6 +471,7 @@ class Bracket(_Base):
 
     def redraw(self, t):
         self.t = t; self.delete('all'); self.configure(background=t[self.on])
+        if appearance.fx().get('brackets') is False: return
         s = self.size - 1; c = t[self.color]; kind = appearance.fx()['tag']
         x = 0 if 'w' in self.corner else s; y = 0 if 'n' in self.corner else s
         dx = 1 if 'w' in self.corner else -1; dy = 1 if 'n' in self.corner else -1
@@ -370,6 +502,10 @@ class Signal(_Base):
         f = self.fonts(); fx = appearance.fx(); cx = 220
         headline, jp = fx['signal']
         if self.headline: headline = self.headline.upper() if fx['upper'] else self.headline
+        if fx.get('gloss'):
+            self.create_text(cx, 44, text=headline, fill=t['text'], font=f['placeholder'])
+            self.create_text(cx, 82, text=self.message, fill=t['muted'], font=f['body'], width=420, justify='center')
+            return
         if fx.get('promo'):
             self.create_text(cx, 34, text=headline, fill=t['text'], font=f['placeholder'])
             self.create_text(cx, 70, text=jp, fill=t['accent'], font=f['jp_title'])

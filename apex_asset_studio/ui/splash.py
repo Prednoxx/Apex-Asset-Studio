@@ -49,7 +49,9 @@ class StartupSplash(tk.Toplevel):
         c.place(x=1, y=1); self.canvas = c
         W, H = width-2, height-2
 
-        fx = appearance.fx(); self.promo = bool(fx.get('promo'))
+        fx = appearance.fx(); self.promo = bool(fx.get('promo')); self.aero = bool(fx.get('gloss'))
+        if self.aero:
+            self._build_aero(c, W, H, t, f, logo_path, version); self.lift(); self.update(); return
         if self.promo:
             self._build_promo(c, W, H, t, f, logo_path, version); self.lift(); self.update(); return
         grid = appearance.mix(t['border'], t['background'], .45)
@@ -99,6 +101,56 @@ class StartupSplash(tk.Toplevel):
         self.status = c.create_text(x, sy - 22, text='INITIALIZING', anchor='nw', fill=t['accent'], font=f['mono'])
         self.lift(); self.update()
 
+    def _build_aero(self, c, W, H, t, f, logo_path, version):
+        """Frutiger Aero splash: soft glow backdrop, light ribbons, bokeh, the mascot, and one frosted glass card
+        holding only the app name, the current step and a progress bar."""
+        from PIL import ImageFilter
+        from . import gloss
+        self.configure(background=t['border'])
+        light = t['light']
+        top = gloss.rgb(appearance.mix(t['accent'], '#ffffff', .10) if light else appearance.mix(t['accent'], t['background'], .30))
+        bottom = gloss.rgb(appearance.mix(t['accent2'], '#ffffff', .06) if light else t['background'])
+        bg = gloss._vgradient((W, H), top, bottom)
+        glow = Image.new('RGBA', (W, H), (0, 0, 0, 0)); d = ImageDraw.Draw(glow)
+        d.ellipse((W * .45, -H * .3, W * 1.25, H * .9), fill=gloss.rgb(t['accent'], 120 if not light else 70))
+        d.ellipse((-W * .2, H * .45, W * .5, H * 1.4), fill=gloss.rgb(t['accent2'], 70 if not light else 50))
+        bg.alpha_composite(glow.filter(ImageFilter.GaussianBlur(70)))
+        bg.alpha_composite(gloss.swoosh((W, H), '#ffffff', seed=5, alpha=60 if not light else 120))
+        bg.alpha_composite(gloss.bokeh((W, H), '#ffffff' if not light else t['accent'], 22, 2, 8, 40, alpha=(10, 34)))
+        path = Path(logo_path) if logo_path else Path(__file__).resolve().parents[1]/'resources'/'asuka.webp'
+        try:
+            art = _plain_art(path, (int(W * .48), int(H * 1.0)))
+            halo = Image.new('RGBA', art.size, gloss.rgb('#ffffff' if light else t['accent'], 0))
+            halo.putalpha(art.getchannel('A').point(lambda v: int(v * .55)))
+            halo = halo.filter(ImageFilter.GaussianBlur(18))
+            ax = W - art.width - 10; ay = H - art.height + 6
+            bg.alpha_composite(halo, (ax, ay)); bg.alpha_composite(art, (ax, ay))
+        except (OSError, ValueError):
+            pass
+        card = (34, H - 176, 34 + 380, H - 34)
+        bg = gloss.glass(bg, card, '#ffffff' if light else t['background'], radius=18, tint_alpha=120 if light else 110)
+        self._bgimg = ImageTk.PhotoImage(bg)
+        c.create_image(0, 0, image=self._bgimg, anchor='nw')
+        x0, y0, x1, y1 = card
+        title = (f['display'][0], max(22, f['display'][1] - 6))
+        c.create_text(x0 + 24, y0 + 30, text='Apex Asset Studio', anchor='w', fill=t['text'], font=title)
+        c.create_text(x1 - 24, y0 + 74, text=f'v{version}', anchor='e', fill=t['muted'], font=f['small'])
+        self.status = c.create_text(x0 + 24, y0 + 74, text='Starting…', anchor='w', fill=t['muted'], font=f['body'])
+        self._bar = (x0 + 24, y0 + 98, x1 - 24, 14)
+        self._bar_track = ImageTk.PhotoImage(gloss.pill(self._bar[2] - self._bar[0], self._bar[3], t['raised'], 'pressed', radius=7, dark=not light))
+        c.create_image(self._bar[0], self._bar[1], image=self._bar_track, anchor='nw')
+        self._bar_item = None
+        self._boot = ('', 'Ready')
+        self._lines = []; self._segments = []
+
+    def _aero_progress(self, fraction):
+        from . import gloss
+        x0, y, x1, h = self._bar
+        width = max(h, int((x1 - x0) * fraction))
+        self._bar_fill = ImageTk.PhotoImage(gloss.pill(width, h, self.t['accent'], 'normal', radius=7, dark=not self.t['light']))
+        if self._bar_item: self.canvas.delete(self._bar_item)
+        self._bar_item = self.canvas.create_image(x0, y, image=self._bar_fill, anchor='nw')
+
     def _build_promo(self, c, W, H, t, f, logo_path, version):
         """Bright promo-poster layout: diagonal band, giant thin numeral, confetti, big thin date."""
         import datetime, random
@@ -144,6 +196,11 @@ class StartupSplash(tk.Toplevel):
     def stage(self, message):
         if self._closed: return
         t, f, c = self.t, self.f, self.canvas
+        if self.aero:
+            self._step += 1
+            self._aero_progress(min(1, self._step / STAGES))
+            c.itemconfigure(self.status, text='Ready' if message == 'Ready' else message)
+            self.update(); return
         if self.promo:
             if self._lines: c.itemconfigure(self._lines[-1][1], text='✓', fill=t['accent'])
             self._step += 1
@@ -173,7 +230,7 @@ class StartupSplash(tk.Toplevel):
 
     def finish(self, app):
         self.stage('Ready')
-        if self._lines: self.canvas.itemconfigure(self._lines[-1][1], text='♪' if self.promo else 'GO', fill=self.t['accent'])
+        if self._lines and not self.aero: self.canvas.itemconfigure(self._lines[-1][1], text='♪' if self.promo else 'GO', fill=self.t['accent'])
         self.update()
         delay = max(0, int((1.4-(time.monotonic()-self.started))*1000))
         def reveal():
