@@ -41,6 +41,7 @@ uniform vec3 base_color;
 uniform vec3 sky;
 uniform vec3 ground;
 uniform vec3 rim_color;
+uniform float dim;
 varying vec3 normal_view;
 varying vec2 uv;
 void main() {
@@ -56,6 +57,10 @@ void main() {
     float rim = pow(1.0 - max(n.z, 0.0), 3.0) * 0.35;
     float spec = pow(max(dot(n, normalize(key + vec3(0.0, 0.0, 1.0))), 0.0), 40.0) * 0.15;
     vec3 lit = color.rgb * (ambient * 0.55 + wrap * vec3(1.0, 0.97, 0.92) * 0.85 + fill) + spec + rim * rim_color;
+    if (dim > 0.0) {  // material inspector: everything but the picked material fades to a dark grey
+        float grey = dot(lit, vec3(0.2126, 0.7152, 0.0722));
+        lit = mix(lit, vec3(grey * 0.35 + 0.02), dim);
+    }
     gl_FragColor = vec4(lit, pass == 1 ? color.a : 1.0);
 }
 '''
@@ -78,7 +83,7 @@ class ModelPreview(OpenGLFrame):
         # Backdrop art: painter(width, height, message) -> PIL RGBA image, drawn behind the model as one texture.
         # Empty-state messages ('Select an item…') are painted into it, so they sit on the art without a box.
         self._painter=None; self.message=''; self.badge=''; self._bg_key=None; self._bg_texture=None; self._bg_timer=None
-        self._program=None; self._shader_failed=False
+        self._program=None; self._shader_failed=False; self._highlight=None
         self._light=dict(sky=(.55,.6,.68), ground=(.12,.11,.1), rim=(.5,.55,.65), shadow=.45)
         self.bind('<ButtonPress-1>',self._down)
         self.bind('<B1-Motion>',self._move)
@@ -115,7 +120,7 @@ class ModelPreview(OpenGLFrame):
                 from OpenGL.GL import shaders
                 self._program=shaders.compileProgram(shaders.compileShader(VERTEX_SHADER,GL.GL_VERTEX_SHADER),
                                                      shaders.compileShader(FRAGMENT_SHADER,GL.GL_FRAGMENT_SHADER),validate=False)
-                self._uniforms={n:GL.glGetUniformLocation(self._program,n) for n in ('tex','textured','pass','base_color','sky','ground','rim_color')}
+                self._uniforms={n:GL.glGetUniformLocation(self._program,n) for n in ('tex','textured','pass','base_color','sky','ground','rim_color','dim')}
             except Exception as exc:  # very old drivers: keep the fixed-function path
                 self._shader_failed=True; self.shader_error=str(exc)
         self.schedule()
@@ -132,6 +137,10 @@ class ModelPreview(OpenGLFrame):
     def set_badge(self, text):
         """Small caption in the corner of the view (the playing animation)."""
         if text!=self.badge: self.badge=text; self._bg_key=None; self.schedule()
+
+    def set_highlight(self, material):
+        """Show one material normally and dim the rest (None shows everything)."""
+        if material!=self._highlight: self._highlight=material; self.schedule()
 
     def set_backdrop(self, painter):
         self._painter=painter; self._bg_key=None; self.schedule()
@@ -371,6 +380,7 @@ class ModelPreview(OpenGLFrame):
                 textured=material in self._textures and has_uv
                 if render_pass and not textured: continue  # untextured meshes are fully opaque
                 GL.glUniform1i(u['textured'],int(textured))
+                GL.glUniform1f(u['dim'],.93 if self._highlight is not None and material!=self._highlight else 0.)
                 if textured: GL.glBindTexture(GL.GL_TEXTURE_2D,self._textures[material])
                 GL.glDrawElements(GL.GL_TRIANGLES,count,GL.GL_UNSIGNED_INT,self.faces[start:start+count])
         GL.glDepthMask(GL.GL_TRUE); GL.glDisable(GL.GL_BLEND)
@@ -379,7 +389,9 @@ class ModelPreview(OpenGLFrame):
     def _draw_fixed(self):
         """Fallback for drivers without GLSL: the original fixed-function lighting."""
         for material,start,count,has_uv in self.draw_ranges:
-            if material in self._textures and has_uv:
+            dimmed=self._highlight is not None and material!=self._highlight
+            GL.glMaterialfv(GL.GL_FRONT_AND_BACK,GL.GL_AMBIENT_AND_DIFFUSE,(.2,.2,.22,1) if dimmed else (.72,.77,.82,1))
+            if material in self._textures and has_uv and not dimmed:
                 GL.glEnable(GL.GL_TEXTURE_2D);GL.glBindTexture(GL.GL_TEXTURE_2D,self._textures[material])
                 GL.glEnable(GL.GL_ALPHA_TEST);GL.glAlphaFunc(GL.GL_GREATER,0.)
             else: GL.glDisable(GL.GL_TEXTURE_2D);GL.glDisable(GL.GL_ALPHA_TEST)

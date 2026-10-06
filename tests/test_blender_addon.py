@@ -61,6 +61,34 @@ class BlenderAddonTests(unittest.TestCase):
         self.assertIsNone(cylinder.parent)
         self.assertAlmostEqual(cylinder.matrix_world.translation.z, .9, places=4)
 
+    def test_animations_and_poses(self):
+        import mathutils
+        anim = self.addon.anim
+        bpy.ops.object.armature_add(); rig = bpy.context.object; rig['aas_model_guid'] = 'M1'
+        action = bpy.data.actions.new('Wave'); rig.animation_data_create(); rig.animation_data.action = action
+        bone = rig.pose.bones[0]; bone.rotation_mode = 'QUATERNION'
+        for frame, angle in ((1, 0), (24, 1.0)):
+            bone.rotation_quaternion = mathutils.Euler((angle, 0, 0)).to_quaternion(); bone.keyframe_insert('rotation_quaternion', frame=frame)
+        self.assertTrue(anim.compatible(action, rig))
+        settings = bpy.context.scene.aas_settings
+        settings.anim_index = list(bpy.data.actions).index(action)
+        self.assertEqual((bpy.context.scene.frame_start, bpy.context.scene.frame_end), (1, 24))
+        bpy.context.scene.frame_set(24)
+        self.assertEqual(bpy.ops.aas.save_pose(name='End'), {'FINISHED'})
+        pose = next(a for a in bpy.data.actions if anim.is_pose(a))
+        self.assertEqual(bpy.ops.aas.bind_pose(), {'FINISHED'})
+        self.assertAlmostEqual(rig.pose.bones[0].rotation_quaternion[0], 1.0)
+        settings.pose_index = list(bpy.data.actions).index(pose); bpy.context.view_layer.update()
+        self.assertLess(rig.pose.bones[0].rotation_quaternion[0], .95)
+
+    def test_material_controls(self):
+        from apex_asset_studio_blender.materials import controls_group
+        settings = bpy.context.scene.aas_settings
+        settings.mat_roughness = .5
+        self.assertAlmostEqual(controls_group().nodes['Roughness'].outputs[0].default_value, .5)
+        bpy.ops.aas.reset_material_controls()
+        self.assertAlmostEqual(controls_group().nodes['Roughness'].outputs[0].default_value, 1.0)
+
 
 if __name__ == '__main__':
     unittest.main()

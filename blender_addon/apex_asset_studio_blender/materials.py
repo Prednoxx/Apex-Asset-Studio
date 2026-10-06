@@ -3,6 +3,40 @@ import json
 
 import bpy
 
+# One shared node group feeds every Apex material, so the Material controls in the AAS panel change all of them at
+# once: normal strength, specular, roughness, emission, skin scattering, and a hue / saturation / brightness grade.
+CONTROLS = (('Normal Strength', 1.0), ('Specular', 1.0), ('Roughness', 1.0), ('Emission', 1.0), ('Skin', 1.0),
+            ('Hue', 0.5), ('Saturation', 1.0), ('Brightness', 1.0))
+CONTROLS_GROUP = 'AAS Controls'
+
+
+def controls_group():
+    group = bpy.data.node_groups.get(CONTROLS_GROUP)
+    if group is not None and group.get('aas_version') == 1: return group
+    values = {}
+    if group is None: group = bpy.data.node_groups.new(CONTROLS_GROUP, 'ShaderNodeTree')
+    else: values = {n.name: n.outputs[0].default_value for n in group.nodes if n.type == 'VALUE'}
+    group.nodes.clear(); group.interface.clear()
+    output = group.nodes.new('NodeGroupOutput'); output.location = (200, 0)
+    for index, (name, default) in enumerate(CONTROLS):
+        group.interface.new_socket(name=name, in_out='OUTPUT', socket_type='NodeSocketFloat')
+        value = group.nodes.new('ShaderNodeValue'); value.name = value.label = name; value.location = (0, -index * 90)
+        value.outputs[0].default_value = values.get(name, default)
+        group.links.new(value.outputs[0], output.inputs[name])
+    group['aas_version'] = 1
+    return group
+
+
+def set_control(name, value):
+    node = controls_group().nodes.get(name)
+    if node: node.outputs[0].default_value = value
+
+
+def control_value(name):
+    group = bpy.data.node_groups.get(CONTROLS_GROUP)
+    node = group.nodes.get(name) if group else None
+    return node.outputs[0].default_value if node else dict(CONTROLS)[name]
+
 
 def build_material(desc, base):
     name=desc['name']
@@ -44,7 +78,13 @@ def build_material(desc, base):
     inputs=nodes.new('NodeGroupInput'); inputs.location=(-850,0)
     output=nodes.new('NodeGroupOutput'); output.location=(700,0)
     diffuse=nodes.new('ShaderNodeBsdfDiffuse'); diffuse.location=(100,120)
+    controls=nodes.new('ShaderNodeGroup'); controls.node_tree=controls_group(); controls.location=(-850,-500); controls.label='AAS Controls'
     color=inputs.outputs.get('Base Color')
+    if color:
+        grade=nodes.new('ShaderNodeHueSaturation'); grade.location=(-600,250); grade.label='Color grade'
+        links.new(color,grade.inputs['Color']); links.new(controls.outputs['Hue'],grade.inputs['Hue'])
+        links.new(controls.outputs['Saturation'],grade.inputs['Saturation']); links.new(controls.outputs['Brightness'],grade.inputs['Value'])
+        color=grade.outputs['Color']
     for role in ('ao','cavity'):
         if role not in roles: continue
         multiply=nodes.new('ShaderNodeMixRGB'); multiply.blend_type='MULTIPLY'
@@ -55,6 +95,7 @@ def build_material(desc, base):
     if 'normal' in roles:
         normal=nodes.new('ShaderNodeNormalMap'); normal.location=(-100,-250)
         links.new(inputs.outputs['Normal'],normal.inputs['Color'])
+        links.new(controls.outputs['Normal Strength'],normal.inputs['Strength'])
         links.new(normal.outputs['Normal'],diffuse.inputs['Normal'])
     roughness=None
     if 'gloss' in roles:
@@ -63,6 +104,9 @@ def build_material(desc, base):
         roughness=nodes.new('ShaderNodeMath');roughness.operation='SUBTRACT';roughness.location=(-100,-100)
         roughness.inputs[0].default_value=1.;roughness.use_clamp=True
         links.new(inputs.outputs['Gloss'],roughness.inputs[1])
+        scaled=nodes.new('ShaderNodeMath');scaled.operation='MULTIPLY';scaled.use_clamp=True;scaled.location=(50,-100);scaled.label='Roughness control'
+        links.new(roughness.outputs[0],scaled.inputs[0]);links.new(controls.outputs['Roughness'],scaled.inputs[1])
+        roughness=scaled
         links.new(roughness.outputs[0],diffuse.inputs['Roughness'])
     surface=diffuse.outputs[0];glossy=None
     if 'specular' in roles:
@@ -75,7 +119,9 @@ def build_material(desc, base):
         links.new(inverse.outputs[0],energy.inputs[2]); color=energy.outputs[0]
         glossy=nodes.new('ShaderNodeBsdfMetallic');glossy.fresnel_type='F82';glossy.distribution='MULTI_GGX';glossy.location=(100,-80)
         glossy.label='GGX Fresnel';glossy.inputs['Edge Tint'].default_value=(1,1,1,1)
-        links.new(inputs.outputs['Specular'],glossy.inputs['Base Color'])
+        spec_scale=nodes.new('ShaderNodeVectorMath');spec_scale.operation='SCALE';spec_scale.location=(-100,-20);spec_scale.label='Specular control'
+        links.new(inputs.outputs['Specular'],spec_scale.inputs[0]);links.new(controls.outputs['Specular'],spec_scale.inputs['Scale'])
+        links.new(spec_scale.outputs[0],glossy.inputs['Base Color'])
         if normal: links.new(normal.outputs['Normal'],glossy.inputs['Normal'])
         if roughness: links.new(roughness.outputs[0],glossy.inputs['Roughness'])
         if 'anisotropy_direction' in roles and roughness:
@@ -106,7 +152,10 @@ def build_material(desc, base):
         if color: links.new(color,skin.inputs['Color'])
         if normal: links.new(normal.outputs[0],skin.inputs['Normal'])
         if roughness and skin.inputs.get('Roughness'): links.new(roughness.outputs[0],skin.inputs['Roughness'])
-        mix=nodes.new('ShaderNodeMixShader');mix.inputs[0].default_value=scatter[3];mix.location=(350,400)
+        mix=nodes.new('ShaderNodeMixShader');mix.location=(350,400)
+        amount=nodes.new('ShaderNodeMath');amount.operation='MULTIPLY';amount.use_clamp=True;amount.inputs[0].default_value=scatter[3]
+        amount.location=(150,600);amount.label='Skin control'
+        links.new(controls.outputs['Skin'],amount.inputs[1]);links.new(amount.outputs[0],mix.inputs[0])
         links.new(surface,mix.inputs[1]);links.new(skin.outputs[0],mix.inputs[2]);surface=mix.outputs[0]
         mat['aas_skin_mapping']='Blender physical approximation; profile RGB radius, 0.005 m scale'
     if glossy:
@@ -115,6 +164,7 @@ def build_material(desc, base):
     if 'emission' in roles:
         emission=nodes.new('ShaderNodeEmission'); emission.location=(100,-450)
         links.new(inputs.outputs['Emission'],emission.inputs['Color'])
+        links.new(controls.outputs['Emission'],emission.inputs['Strength'])
         add=nodes.new('ShaderNodeAddShader'); add.location=(500,120)
         links.new(surface,add.inputs[0]); links.new(emission.outputs[0],add.inputs[1]); surface=add.outputs[0]
     if 'alpha' in roles or blend:
@@ -160,5 +210,5 @@ def build_material(desc, base):
         tree.links.new(image.outputs['Alpha'],shader.inputs['Base Alpha'])
     mat['aas_missing_textures']=json.dumps(missing)
     if missing: mat['aas_resolution_status']='missing_textures'
-    mat['aas_shader_revision']=2
+    mat['aas_shader_revision']=3
     return mat

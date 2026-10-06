@@ -9,6 +9,7 @@ import tkinter as tk
 from collections import OrderedDict
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from tkinter import font as tkfont
 from PIL import Image
 
 from ..repository import AssetRepository
@@ -20,7 +21,8 @@ from ..rpak.texture import extract_texture
 from ..export.package import export_package, export_animation
 from . import appearance, widgets
 from .animations import show_animation_picker
-from .common import asset_lines, open_folder
+from .common import asset_lines, open_folder, sort_tree
+from .inspector import show_material_inspector
 from .preview import ModelPreview
 
 
@@ -79,6 +81,29 @@ class LibraryPage:
         self.inspector_title.set(str(title))
         self.inspector_meta.set(str(subtitle))
 
+    SORTS = {'Name A–Z': ('name', False), 'Name Z–A': ('name', True), 'Rarity (best first)': ('quality', True),
+             'Season (newest first)': ('season', True), 'Season (oldest first)': ('season', False), 'Source': ('source', False)}
+
+    def _apply_sort(self, remember=True):
+        column, reverse = self.SORTS.get(self.sort_var.get(), ('name', False))
+        if self.session.get('sort_column') and not remember:  # a heading click from earlier wins until the dropdown is used
+            column, reverse = self.session['sort_column'], self.session.get('sort_reverse', False)
+        if remember: self.session['sort'] = self.sort_var.get(); self.session.pop('sort_column', None)
+        if column in self.simple_assets['columns']: sort_tree(self.simple_assets, column, reverse)
+
+    def _remember_column_sort(self, column, reverse):
+        self.session['sort_column'] = column; self.session['sort_reverse'] = reverse
+
+    @staticmethod
+    def _season_code(label):
+        return f"S{label.split()[-1]}" if label.startswith('Season ') else '—'
+
+    def _update_season_choices(self, seasons):
+        numbers = sorted((int(s[1:]) for s in seasons if s.startswith('S')), reverse=True)
+        values = ['All seasons'] + [f'Season {n}' for n in numbers] + (['No season'] if '—' in seasons else [])
+        self.season_filter.configure(values=values)
+        if self.season_filter_var.get() not in values: self.season_filter_var.set('All seasons')
+
     def _update_frame_text(self, *_):
         clip = self._animation
         if clip is None: self.frame_text.set('')
@@ -120,6 +145,24 @@ class LibraryPage:
             widget.state(['disabled'] if animation_only or not idle else ['!disabled'])
         self.include_animation_check.state(['!disabled'] if idle and not animation_only and self._animation is not None else ['disabled'])
         self.animation_export_btn.state(['!disabled'] if self._animation is not None and idle else ['disabled'])
+
+    # Columns hidden first when the list is too narrow to show them all (Name and Rarity always stay).
+    OPTIONAL_COLUMNS = ('state', 'source', 'season')
+
+    def _fit_list_columns(self, event=None):
+        """Show as many columns as fit the list's width, so none are cut off. Hidden ones still sort."""
+        tree = self.simple_assets
+        available = tree.winfo_width()
+        if available <= 1: return
+        shown = list(tree['columns'])
+        def needed(columns):
+            return (int(tree.column('#0', 'width')) if 'tree' in str(tree.cget('show')) else 0) + \
+                int(tree.column('name', 'minwidth')) + 40 + sum(int(tree.column(c, 'width')) for c in columns if c != 'name')
+        for column in self.OPTIONAL_COLUMNS:
+            if needed(shown) <= available: break
+            shown.remove(column)
+        if tuple(shown) != tuple(tree.cget('displaycolumns')) and not (tree.cget('displaycolumns') in (('#all',), '#all') and shown == list(tree['columns'])):
+            tree.configure(displaycolumns=shown)
 
     def _build_library(self):
         f = appearance.fonts(self)
@@ -164,6 +207,15 @@ class LibraryPage:
         rarity = ttk.Combobox(filters, textvariable=self.rarity_filter_var, state='readonly', width=13,
                               values=('All rarities', 'Common', 'Rare', 'Epic', 'Legendary', 'Mythic'))
         filters.add(rarity); rarity.bind('<<ComboboxSelected>>', lambda _e: self._search_simple())
+        self.season_filter_var = tk.StringVar(value='All seasons')
+        self.season_filter = ttk.Combobox(filters, textvariable=self.season_filter_var, state='readonly', width=12, values=('All seasons',))
+        filters.add(widgets.tip(self.season_filter, 'Show only skins released in one season (read from the game files; base and store '
+                                                    'skins have no season).'))
+        self.season_filter.bind('<<ComboboxSelected>>', lambda _e: self._search_simple())
+        self.sort_var = tk.StringVar(value=self.session.get('sort', 'Name A–Z'))
+        sort = ttk.Combobox(filters, textvariable=self.sort_var, state='readonly', width=18, values=tuple(self.SORTS))
+        filters.add(widgets.tip(sort, 'Order of the list. You can also click a column heading (click again to reverse).'))
+        sort.bind('<<ComboboxSelected>>', lambda _e: self._apply_sort())
         filters.add(widgets.tip(ttk.Checkbutton(filters, text='Hide unavailable', variable=self.hide_unavailable_var,
                     style='Panel.TCheckbutton', command=self._search_simple),
                     "Hide skins whose model isn't in your game files, so they can't be previewed or exported."))
@@ -177,17 +229,22 @@ class LibraryPage:
                     'saves the first time you open a skin.'))
         assets_body = ttk.Frame(center, style='Panel.TFrame')
         assets_body.pack(fill='both', expand=True)
-        cols = ('name', 'quality', 'state')
+        cols = ('name', 'quality', 'season', 'source', 'state')
         # extended: Ctrl/Shift-click several skins to export them together; the clicked one is previewed
         self.simple_assets = ttk.Treeview(assets_body, columns=cols, show='headings', selectmode='extended')
-        for column, title, width, stretch in (('name', 'Name', 140, True), ('quality', 'Rarity', 96, False), ('state', 'Model', 104, False)):
+        for column, title, width, stretch in (('name', 'Name', 140, True), ('quality', 'Rarity', 86, False), ('season', 'Season', 64, False),
+                                              ('source', 'Source', 116, False), ('state', 'Model', 96, False)):
             self.simple_assets.heading(column, text=title, anchor='w')
-            self.simple_assets.column(column, width=width, minwidth=60, stretch=stretch, anchor='w')
+            # Wide enough for the heading plus the sort arrow at any text size.
+            needed = tkfont.Font(font=appearance.fonts(self)['strong']).measure(f'{title} ▼') + 24
+            self.simple_assets.column(column, width=max(width, needed), minwidth=60, stretch=stretch, anchor='w')
         self.simple_assets.pack(side='left', fill='both', expand=True)
         assets_scroll = ttk.Scrollbar(assets_body, orient='vertical', command=self.simple_assets.yview)
         assets_scroll.pack(side='right', fill='y', padx=(4, 0))
         self.simple_assets.configure(yscrollcommand=lambda *a: (assets_scroll.set(*a), self._schedule_thumbnails()))
         self.simple_assets.bind('<Configure>', self._schedule_thumbnails, add='+')
+        self.simple_assets.bind('<Configure>', self._fit_list_columns, add='+')
+        self.simple_assets.on_sort = self._remember_column_sort
         self.simple_assets.bind('<<TreeviewSelect>>', self._swap_selection_tags)
         self.simple_assets.bind('<<TreeviewSelect>>', self._simple_asset_selected, add='+')
         self.simple_assets.bind('<<TreeviewSelect>>', lambda _e: self._refresh_export_controls(), add='+')
@@ -201,6 +258,9 @@ class LibraryPage:
         ttk.Label(titles, textvariable=self.inspector_meta, style='Data.Panel.TLabel', width=1).pack(fill='x', pady=(3, 0))
         widgets.tip(ttk.Button(head, text='Reset view', style='Ghost.Panel.TButton', command=lambda: self.preview.reset_view()),
                     'Put the camera back to the starting angle and zoom (R).').pack(side='right', anchor='n')
+        widgets.tip(ttk.Button(head, text='Materials…', style='Ghost.Panel.TButton', command=lambda: show_material_inspector(self)),
+                    'Every material and texture this model uses, what each texture is for, and anything that '
+                    "couldn't be read. Picking a material highlights it in the preview.").pack(side='right', anchor='n')
 
         viewport = ttk.Frame(detail, style='Hairline.TFrame', padding=1)
         self.preview = ModelPreview(viewport, height=300)
@@ -260,6 +320,16 @@ class LibraryPage:
         self.export_folder_entry.pack(side='left', fill='x', expand=True)
         self.export_folder_btn = ttk.Button(folder, text='Browse…', command=self._choose_export_folder)
         self.export_folder_btn.pack(side='left', padx=(6, 0))
+        presets = ttk.Frame(export, style='Panel.TFrame'); presets.pack(fill='x', pady=(0, 8))
+        ttk.Label(presets, text='Preset', style='Muted.Panel.TLabel').pack(side='left', padx=(0, 10))
+        self.preset_var = tk.StringVar(value='Custom')
+        self.delete_preset_btn = ttk.Button(presets, text='Delete', style='Ghost.Panel.TButton', command=self._delete_export_preset)
+        self.delete_preset_btn.pack(side='right')
+        ttk.Button(presets, text='Save…', style='Ghost.Panel.TButton', command=self._save_export_preset).pack(side='right', padx=(6, 0))
+        self.preset_choice = ttk.Combobox(presets, textvariable=self.preset_var, state='readonly', width=12)
+        self.preset_choice.pack(side='left', fill='x', expand=True)
+        self.preset_choice.bind('<<ComboboxSelected>>', lambda _e: self._apply_export_preset())
+        widgets.tip(self.preset_choice, 'Saved combinations of formats and options. Changing any option switches to "Custom".')
         kinds = widgets.Flow(export, gap=(16, 6)); kinds.pack(fill='x', pady=(0, 6))
         kinds.add(ttk.Label(kinds, text='Export', style='Muted.Panel.TLabel'))
         kinds.add(widgets.tip(ttk.Radiobutton(kinds, text='Model', value='model', variable=self.export_kind, style='Panel.TRadiobutton',
@@ -288,6 +358,9 @@ class LibraryPage:
             self.format_vars[ext] = var
             check = widgets.tip(ttk.Checkbutton(formats, text=label, variable=var, style='Panel.TCheckbutton'), hints[ext])
             check.pack(side='left', padx=(0, 12)); self._model_export_options.append(check)
+        for variable in list(self.format_vars.values()) + [self.all_lods_var, self.include_animation]:
+            variable.trace_add('write', lambda *_: self._detect_export_preset())
+        self._refresh_export_presets(); self._detect_export_preset()
         self.export_btn = widgets.GlossButton(export, 'Export model', command=self._export, height=36, width=240)
         self.export_btn.state(['disabled'])
         self.export_btn.pack(fill='x')
@@ -361,6 +434,7 @@ class LibraryPage:
         if everywhere: label = f'Results for “{text}”'
         self.simple_header_var.set(label)
         rarity = self.rarity_filter_var.get().lower(); hide = self.hide_unavailable_var.get()
+        season_filter = self.season_filter_var.get(); seasons = set()
         self.session['hide_unavailable'] = hide
         if spec[0] == 'owner':
             rows = self.catalog.search_cosmetics(text, owner_guid=None if everywhere else spec[1])
@@ -371,16 +445,22 @@ class LibraryPage:
         shown = 0
         for r in rows:
             if spec[0] == 'owner':
-                models = json.loads(r['details']).get('models', [])
-                found = any(m.get('pak_name') for m in models)
+                details = json.loads(r['details'])
+                found = any(m.get('pak_name') for m in details.get('models', []))
+                season = f"S{details['season']}" if details.get('season') else '—'
+                seasons.add(season)
                 if (rarity != 'all rarities' and str(r['quality']).lower() != rarity) or (hide and not found): continue
+                if season_filter != 'All seasons' and season != self._season_code(season_filter): continue
                 shown += 1
                 self.simple_assets.insert('', 'end', iid=f'cosmetic:{r["id"]}', tags=(str(r['quality']).lower(),) if found else ('muted',),
-                                          values=(r['name'], r['quality'], 'Ready' if found else 'Not available'))
+                                          values=(r['name'], str(r['quality']).title(), season, details.get('obtained', ''),
+                                                  'Ready' if found else 'Not available'))
                 self._remember_thumb_row(f'cosmetic:{r["id"]}', r)
             else:
                 self.simple_assets.insert('', 'end', iid=f'simple:{r["id"]}',
-                                          values=(r['name'] or f'Unnamed {r["guid"]}', r['type'], r['decode_status']))
+                                          values=(r['name'] or f'Unnamed {r["guid"]}', r['type'], '', '', r['decode_status']))
+        self._update_season_choices(seasons)
+        self._apply_sort(remember=False)
         self._schedule_thumbnails()
         count = shown if spec[0] == 'owner' else len(rows)
         self.list_count_var.set(f'{count:,} item' + ('' if count == 1 else 's'))
@@ -671,7 +751,7 @@ class LibraryPage:
             return
         model=self._model; clip=self._animation; serial=self._selection_serial
         self._blender_note = ''
-        self._playing=False; self.play_btn.configure(text='Play'); self._set_busy(True)
+        self._playing=False; self.play_btn.configure(text='Play'); self._set_busy(True); self._set_activity(f'exporting: {title}')
         def worker():
             try:
                 folder.mkdir(parents=True,exist_ok=True)
@@ -702,7 +782,7 @@ class LibraryPage:
             self.status_var.set('Pick at least one export format.'); return
         self._blender_note = '' if {'.glb', '.gltf'} & set(formats) else ' (CAST only: the Blender add-on needs GLB or glTF.)'
         self._playing=False; self.play_btn.configure(text='Play')
-        self._set_busy(True)
+        self._set_busy(True); self._set_activity(f'exporting: {label}')
         source = getattr(self, '_model_source', None)
         def worker():
             try:
@@ -718,6 +798,61 @@ class LibraryPage:
             except Exception as exc:
                 self.events.put(('work_error',serial,f'Export failed: {type(exc).__name__}: {exc}'))
         threading.Thread(target=worker,daemon=True).start()
+
+    BUILTIN_PRESETS = {
+        'Blender (GLB, all LODs)': dict(formats=['.glb'], all_lods=True, animation=True),
+        'Quick look (GLB, LOD 0)': dict(formats=['.glb'], all_lods=False, animation=False),
+        'CAST tools (CAST, all LODs)': dict(formats=['.cast'], all_lods=True, animation=True),
+        'Everything (GLB + glTF + CAST)': dict(formats=['.glb', '.gltf', '.cast'], all_lods=True, animation=True),
+    }
+
+    def _export_presets(self):
+        presets = dict(self.BUILTIN_PRESETS); presets.update(self.session.get('export_presets', {}))
+        return presets
+
+    def _refresh_export_presets(self):
+        self.preset_choice.configure(values=list(self._export_presets()) + ['Custom'])
+
+    def _current_export_options(self):
+        return dict(formats=sorted(ext for ext, var in self.format_vars.items() if var.get()),
+                    all_lods=bool(self.all_lods_var.get()), animation=bool(self.include_animation.get()))
+
+    def _detect_export_preset(self):
+        if getattr(self, '_applying_preset', False) or not hasattr(self, 'preset_var'): return
+        current = self._current_export_options()
+        match = next((name for name, p in self._export_presets().items()
+                      if sorted(p['formats']) == current['formats'] and p['all_lods'] == current['all_lods']
+                      and p['animation'] == current['animation']), 'Custom')
+        self.preset_var.set(match); self.session['export_preset'] = match
+        self.delete_preset_btn.state(['!disabled'] if match in self.session.get('export_presets', {}) else ['disabled'])
+
+    def _apply_export_preset(self):
+        preset = self._export_presets().get(self.preset_var.get())
+        if not preset: return
+        self._applying_preset = True
+        try:
+            for ext, var in self.format_vars.items(): var.set(ext in preset['formats'])
+            self.all_lods_var.set(preset['all_lods']); self.include_animation.set(preset['animation'])
+        finally:
+            self._applying_preset = False
+        self._detect_export_preset()
+
+    def _save_export_preset(self):
+        from tkinter import simpledialog
+        name = simpledialog.askstring('Save preset', 'Name for these export options:', parent=self)
+        if not name or not name.strip(): return
+        name = name.strip()
+        if name in self.BUILTIN_PRESETS or name == 'Custom':
+            self.status_var.set('That name is taken by a built-in preset. Pick another.'); return
+        self.session.setdefault('export_presets', {})[name] = self._current_export_options()
+        self._save_session(); self._refresh_export_presets(); self._detect_export_preset()
+        self.status_var.set(f'Saved export preset "{name}".')
+
+    def _delete_export_preset(self):
+        name = self.preset_var.get()
+        if name in self.session.get('export_presets', {}):
+            del self.session['export_presets'][name]; self._save_session()
+            self._refresh_export_presets(); self._detect_export_preset()
 
     def _remember_formats(self):
         self.session['formats'] = [ext for ext, var in self.format_vars.items() if var.get()]

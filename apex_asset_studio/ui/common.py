@@ -1,5 +1,6 @@
 """Small helpers shared by the app's pages: names, error wording, folder helpers and sortable tables."""
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -34,24 +35,34 @@ SHORTCUTS = (('Ctrl+F', 'Search the library'), ('Ctrl+1 … 3', 'Switch page'), 
 RARITY_ORDER = {'common': 0, 'rare': 1, 'epic': 2, 'legendary': 3, 'mythic': 4, 'iconic': 4, 'heirloom': 5}
 
 
+def _sort_key(column, value):
+    text = str(value)
+    if column == 'quality' and text.lower() in RARITY_ORDER: return (0, RARITY_ORDER[text.lower()], '')
+    season = re.fullmatch(r'S(\d+)', text)
+    if season: return (0, int(season.group(1)), '')
+    try: return (0, float(text.replace(',', '')), '')
+    except ValueError: return (1, 0, text.casefold())
+
+
+def sort_tree(tree, column, reverse=False):
+    """Sort a table by one column. Empty cells ('' or '—') always go last, whichever direction."""
+    rows = [(tree.set(iid, column), iid) for iid in tree.get_children('')]
+    filled = sorted([(_sort_key(column, v), iid) for v, iid in rows if v not in ('', '—')], reverse=reverse)
+    blank = [(None, iid) for v, iid in rows if v in ('', '—')]
+    for index, (_k, iid) in enumerate(filled + blank): tree.move(iid, '', index)
+    tree._sort = (column, reverse)
+    for col in tree['columns']:
+        tree.heading(col, text=tree._titles[col] + ((' ▼' if reverse else ' ▲') if col == column else ''))
+
+
 def make_sortable(tree):
-    """Click a column heading to sort by it; click again to reverse. Numbers and rarities sort naturally."""
-    def key_for(column, value):
-        text = str(value)
-        if column == 'quality' and text.lower() in RARITY_ORDER: return (0, RARITY_ORDER[text.lower()], '')
-        try: return (0, float(text.replace(',', '')), '')
-        except ValueError: return (1, 0, text.casefold())
-    def sort(column):
-        reverse = tree._sort == (column, False)
-        rows = [(key_for(column, tree.set(iid, column)), iid) for iid in tree.get_children('')]
-        for index, (_k, iid) in enumerate(sorted(rows, reverse=reverse)): tree.move(iid, '', index)
-        tree._sort = (column, reverse)
-        for col in tree['columns']:
-            title = tree._titles[col]
-            tree.heading(col, text=title + ((' ▼' if reverse else ' ▲') if col == column else ''))
+    """Click a column heading to sort by it; click again to reverse. Numbers, seasons and rarities sort naturally."""
     tree._sort = None
     tree._titles = {col: tree.heading(col, 'text') for col in tree['columns']}
-    for col in tree['columns']: tree.heading(col, command=lambda c=col: sort(c))
+    def click(column):
+        sort_tree(tree, column, reverse=tree._sort == (column, False))
+        if hasattr(tree, 'on_sort'): tree.on_sort(column, tree._sort[1])
+    for col in tree['columns']: tree.heading(col, command=lambda c=col: click(c))
 
 
 def open_folder(folder):

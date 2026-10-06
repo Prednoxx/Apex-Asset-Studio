@@ -11,9 +11,17 @@ GETTING STARTED
 
 BROWSE
 - Pick a Legend or weapon on the left, then a skin in the list.
-- Click a column heading to sort (Name, Rarity, Model). Ctrl+F searches.
-- Filter by rarity, hide skins that can't be exported yet, or tick "Search all
-  skins" to search every Legend and weapon at once.
+- Sort by: Name, Rarity, Season (newest or oldest first) or Source, from the
+  sort list above the skins or by clicking a column heading. Remembered.
+  Ctrl+F searches.
+- Season and Source (Battle Pass, Collection Event, Store, Bundle, Base...)
+  come from the game's own data. Skins the game doesn't tag show "—" and sort
+  last. Filter by season, by rarity, hide skins that can't be exported yet, or
+  tick "Search all skins" to search every Legend and weapon at once.
+- Materials... (above the preview) lists every material and texture the model
+  uses: what each texture is for, the shader slot it feeds, size, format, the
+  channels used, and anything that couldn't be read. Pick a material to
+  highlight it in the preview (the rest go grey), or a texture to see it.
 - The 3D preview has soft lighting, a ground shadow and see-through hair and
   glass edges. The playing animation's name and length show in its corner.
 - Pictures: tick "Pictures" to see a picture next to each skin. Put store
@@ -33,6 +41,10 @@ ANIMATIONS
 EXPORT
 - Choose formats: GLB, glTF and/or CAST. "All detail levels" also exports the
   lower-detail LOD meshes. "Include animation" adds the chosen clip.
+- Presets: pick one from "Preset" (Blender, Quick look, CAST tools,
+  Everything) to set formats and options in one go. "Save..." stores your
+  current options as your own preset; "Delete" removes it. The list shows
+  "Custom" when your options don't match any preset.
 - Exports go to the Exports folder (beside the EXE, or the master folder's
   Exports when run from source), in a folder per Legend or weapon:
   Exports\Wraith\Wraith - Airship Assassin - Full body\
@@ -55,6 +67,17 @@ BLENDER
   then pick the .aas.json file. Materials are built on import. To add an
   animation to a model you already imported, select its armature first.
   Blender import needs GLB or glTF in the export.
+- Animations & Poses (AAS tab): every animation that fits the selected
+  model, with its length. Click one to play it (the frame range fits it), or
+  Play / Pause. Poses: "Save Pose" keeps the current pose (any frame, or your
+  own posing) under a name; click a pose to apply it, "Bind Pose" goes back
+  to the default stance. Poses are saved in the .blend.
+- Materials (AAS tab): sliders for Normal strength, Specular, Roughness, Glow,
+  Skin scattering, Hue, Saturation and Brightness change every material of
+  the model at once; Reset puts them back. "Swap Skin (Recolor)..." switches
+  the model to another skin of the same model (pick that skin's .aas.json
+  export) without re-importing, keeping its pose, animation and lighting.
+  Skins with a different model need a normal import.
 - Lighting (AAS tab > Lighting): pick a preset and click Apply Lighting:
   3-Point Studio, Rim Light, Dual Color (choose both colors), Sunrise,
   Golden Hour, Daylight, Overcast Soft, Moonlight, Neon, Dramatic and
@@ -83,7 +106,12 @@ ADVANCED
 - Assets: every indexed game asset, searchable by name, GUID or container.
 - Strings: search readable text inside the game packages.
 - Diagnostics: index health, failed packages, and the log of scans, loads and
-  errors. Save report... writes it all to a file for bug reports.
+  errors. "Problems" lists skins that failed to load or export and why.
+  "Save bug report..." writes a ZIP with the log, problems and settings to
+  attach to a bug report.
+- Everything is also logged to logs\app.log in the app's data folder. If the
+  app closed unexpectedly, it says so at the next start and cleans up any
+  half-finished export.
 
 LIMITS
 - Not supported yet: some animation encodings (datapoint compression, IK,

@@ -11,6 +11,22 @@ from .oodle_stream import decompress_stream
 DXGI = [71,72,74,75,77,78,80,81,83,84,95,96,98,99]
 
 
+FORMAT_NAMES = {0: 'BC1', 1: 'BC1 sRGB', 2: 'BC2', 3: 'BC2 sRGB', 4: 'BC3', 5: 'BC3 sRGB', 6: 'BC4', 7: 'BC4 signed',
+                8: 'BC5', 9: 'BC5 signed', 10: 'BC6H', 11: 'BC6H signed', 12: 'BC7', 13: 'BC7 sRGB', 31: 'RGBA8', 32: 'RGBA8 sRGB'}
+
+
+def texture_info(archive, asset):
+    """Size, pixel format and mip count from a texture's header, without decoding any pixels."""
+    if asset.type_name != 'txtr' or asset.version != 10:
+        raise ValueError(f'texture version {asset.version} unsupported')
+    start = PageReader(archive).header(asset)
+    header = archive.data[start:start + 56]
+    fmt, width, height, _depth = struct.unpack_from('<4H', header, 8)
+    perm, stream, opt = header[24:27]
+    return {'width': width, 'height': height, 'format': FORMAT_NAMES.get(fmt, f'format {fmt}'),
+            'srgb': fmt in (1, 3, 5, 13, 32), 'mips': perm + stream + opt, 'streamed_mips': stream + opt}
+
+
 def extract_texture(archive, asset, directory, stem, preview_size=None):
     from PIL import Image
     import texture2ddecoder as dec

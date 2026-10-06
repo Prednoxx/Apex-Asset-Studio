@@ -438,6 +438,17 @@ class Catalog:
         try: return json.loads(row['details']).get('values', {}) if row else {}
         except (ValueError, TypeError): return {}
 
+    def ensure_release_info(self):
+        """Libraries scanned before seasons were recorded get them added in place (row ids unchanged)."""
+        from .cosmetics import add_release_info
+        def lookup(db, guid):
+            row = db.execute("""SELECT d.details FROM assets a JOIN asset_details d ON d.asset_id=a.id
+                WHERE a.guid=? AND d.status='settings_decoded' LIMIT 1""", (guid,)).fetchone()
+            try: return json.loads(row['details']).get('values', {}) if row else {}
+            except (ValueError, TypeError): return {}
+        with self.connect() as db:
+            return add_release_info(db, lookup)
+
     def get_cosmetic(self, cosmetic_id):
         with self.connect() as db:
             return db.execute("SELECT * FROM cosmetics WHERE id=?", (cosmetic_id,)).fetchone()

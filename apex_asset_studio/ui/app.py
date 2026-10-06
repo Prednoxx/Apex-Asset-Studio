@@ -17,13 +17,15 @@ from . import appearance, widgets
 from .advanced import AdvancedPage
 from .batch import BatchExport
 from .thumbnails import Thumbnails
+from .inspector import close_material_inspector
+from .reliability import Reliability
 from .common import APP_NAME, APP_VERSION, ScanEta, friendly_error, gb, make_sortable
 from .library import LibraryPage
 from .settings import SettingsPage
 from .splash import StartupSplash
 
 
-class ApexAssetStudioApp(LibraryPage, BatchExport, Thumbnails, AdvancedPage, SettingsPage, tk.Tk):
+class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, Thumbnails, AdvancedPage, SettingsPage, tk.Tk):
     def __init__(self, catalog_path=None, show_splash=True):
         super().__init__()
         self.withdraw()
@@ -34,6 +36,7 @@ class ApexAssetStudioApp(LibraryPage, BatchExport, Thumbnails, AdvancedPage, Set
         appdata = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".apex_asset_studio")) / "ApexAssetStudio"
         appdata.mkdir(parents=True, exist_ok=True)
         self.appearance_path = (Path(catalog_path).parent if catalog_path else appdata) / 'appearance.json'
+        self._start_reliability(self.appearance_path.parent)
         self.appearance = appearance.load(self.appearance_path)
         appearance.ACTIVE.update(style=self.appearance['base'], scale=self.appearance['text_scale'],
                                  contrast=self.appearance['high_contrast'], reduce=self.appearance['reduce_effects'],
@@ -71,11 +74,18 @@ class ApexAssetStudioApp(LibraryPage, BatchExport, Thumbnails, AdvancedPage, Set
         if splash: splash.stage('Loading library…')
         self.refresh_all_views()
         for tree in (self.simple_assets, self.asset_table, self.string_table): make_sortable(tree)
-        if not self.catalog.index_outdated:  # one-time link table for libraries scanned by older versions
+        if not self.catalog.index_outdated:  # one-time additions for libraries scanned by older versions
             threading.Thread(target=self.catalog.ensure_animation_links, daemon=True).start()
+            def release_info():
+                try:
+                    if self.catalog.ensure_release_info(): self.events.put(('cosmetics_updated',))
+                except Exception as exc:
+                    self._file_log(f'Season info update failed: {exc}')
+            threading.Thread(target=release_info, daemon=True).start()
         self._restore_session()
         if splash: splash.finish(self)
         else: self.deiconify()
+        self._report_previous_run(); self._set_activity('idle')
 
     # ------------------------------------------------------------------ shell
     PAGES = ('Library', 'Advanced', 'Settings')
@@ -231,7 +241,7 @@ class ApexAssetStudioApp(LibraryPage, BatchExport, Thumbnails, AdvancedPage, Set
         self.progress_var.set(0)
         self._scan_eta = ScanEta()
         self.log_text.delete("1.0", "end")
-        self._set_scanning(True)
+        self._set_scanning(True); self._set_activity('scanning')
         self.status_var.set("Scanning Apex asset library…")
 
         def progress(msg, cur, total):
@@ -261,7 +271,7 @@ class ApexAssetStudioApp(LibraryPage, BatchExport, Thumbnails, AdvancedPage, Set
                         self._log(f"[{cur}/{total}] {msg}")
                 elif event[0] == "done":
                     stats = event[1]
-                    self._set_scanning(False)
+                    self._set_scanning(False); self._set_activity('idle')
                     if stats.stopped:
                         self.status_var.set(
                             f"Scan stopped: {stats.containers_ok} updated, {stats.containers_skipped} unchanged, {stats.containers_failed} failed"
@@ -273,7 +283,7 @@ class ApexAssetStudioApp(LibraryPage, BatchExport, Thumbnails, AdvancedPage, Set
                         self.progress_var.set(100)
                     self.refresh_all_views()
                 elif event[0] == "error":
-                    self._set_scanning(False)
+                    self._set_scanning(False); self._set_activity('idle')
                     self.status_var.set(event[1])
                     self._log(event[1])
                 elif event[0] == 'model_ready':
@@ -281,6 +291,7 @@ class ApexAssetStudioApp(LibraryPage, BatchExport, Thumbnails, AdvancedPage, Set
                     if serial != self._selection_serial:
                         continue
                     self._set_loading(False)
+                    close_material_inspector(self)
                     self._model = model
                     levels = model.lod_levels or sorted(model.lods)
                     self.lod_choice.configure(values=[f'LOD {x}' for x in levels],state='readonly')
@@ -316,7 +327,9 @@ class ApexAssetStudioApp(LibraryPage, BatchExport, Thumbnails, AdvancedPage, Set
                         self._preview_cache.popitem(last=False)
                 elif event[0] == 'work_error':
                     _,serial,error = event
-                    self._set_busy(False)
+                    self._set_busy(False); self._set_activity('idle')
+                    if self._cosmetic and serial == self._selection_serial:
+                        self._record_problem(self._cosmetic['name'], error, self._cosmetic.get('skin_guid', ''), self._cosmetic.get('owner_name', ''))
                     if serial != self._selection_serial: continue
                     if getattr(self, '_loading', False): self._set_loading(False)
                     message = friendly_error(error)
@@ -349,6 +362,10 @@ class ApexAssetStudioApp(LibraryPage, BatchExport, Thumbnails, AdvancedPage, Set
                     self._show_advanced_results(*event[1:])
                 elif event[0] == 'string_results':
                     self._show_string_results(*event[1:])
+                elif event[0] == 'cosmetics_updated':
+                    if not self._busy and not self._scanning: self._search_simple()
+                elif event[0] == 'problem':
+                    self._record_problem(*event[1:])
                 elif event[0] == 'batch_progress':
                     self._batch_progress(*event[1:])
                 elif event[0] == 'batch_done':
@@ -372,7 +389,7 @@ class ApexAssetStudioApp(LibraryPage, BatchExport, Thumbnails, AdvancedPage, Set
                         self.status_var.set(data)
                         self._set_busy(False)
                 elif event[0] == 'export_ready':
-                    self._set_busy(False)
+                    self._set_busy(False); self._set_activity('idle')
                     _,path,manifest = event
                     self.export_btn.state(['!disabled'] if self._model and self._model.material_family_resolved else ['disabled'])
                     self._last_export = path.parent
@@ -452,6 +469,7 @@ class ApexAssetStudioApp(LibraryPage, BatchExport, Thumbnails, AdvancedPage, Set
 
     def _close(self):
         self._save_session()
+        self._finish_reliability()
         self.destroy()
 
 

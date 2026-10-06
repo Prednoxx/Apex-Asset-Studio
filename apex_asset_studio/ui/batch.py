@@ -85,7 +85,7 @@ class BatchExport:
         all_lods = self.all_lods_var.get(); root = self.game_path.get()
         stop = self._batch_stop = threading.Event()
         self._playing = False; self.play_btn.configure(text='Play')
-        self._set_busy(True); self._batch_running = True
+        self._set_busy(True); self._batch_running = True; self._set_activity(f'exporting: batch of {len(jobs)}')
         self.progress_var.set(0); self.progress.pack(side='right')
         self.batch_cancel_btn.state(['!disabled']); self._show_batch_cancel(True)
 
@@ -106,7 +106,9 @@ class BatchExport:
                         model = decode_model(archive, asset, job['family'], stop=stop, allow_unresolved_family=True,
                                              first_lod_only=not all_lods)
                     if not model.material_family_resolved:
-                        skipped.append(f"{job['label']}: materials can't be read yet"); continue
+                        skipped.append(f"{job['label']}: materials can't be read yet")
+                        self.events.put(('problem', cosmetic['name'], "Materials can't be read yet", cosmetic['skin_guid'], cosmetic['owner_name']))
+                        continue
                     export_package(model, self.catalog, root, folder, job['label'], self._cosmetic_for_export(cosmetic),
                                    all_lods, None, overwrite=False, formats=formats)
                     done.append(job['label'])
@@ -114,6 +116,7 @@ class BatchExport:
                     break
                 except Exception as exc:
                     failed.append(f"{job['label']}: {type(exc).__name__}: {exc}")
+                    self.events.put(('problem', cosmetic['name'], f'{type(exc).__name__}: {exc}', cosmetic['skin_guid'], cosmetic['owner_name']))
             self.events.put(('batch_done', done, skipped, failed, stop.is_set(), destination))
         threading.Thread(target=worker, daemon=True).start()
 
@@ -127,7 +130,7 @@ class BatchExport:
         self.status_var.set(f'Exporting {index + 1:,} of {total:,}: {label}')
 
     def _batch_done(self, done, skipped, failed, cancelled, destination):
-        self._batch_running = False
+        self._batch_running = False; self._set_activity('idle')
         self.progress.pack_forget(); self._show_batch_cancel(False)
         self._set_busy(False)
         self._last_export = destination; self.open_export_btn.state(['!disabled'])

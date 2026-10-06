@@ -90,7 +90,9 @@ def rebuild_cosmetics(db):
                             "shipping_status": owner_values.get("shippingStatus"),
                             "source": skin["path"], "skin_family": values.get("skinName", ""),
                             "payload_resolution": 'reconstructed_patch' if skin['patch_count'] else 'base_package',
-                            "camo_index": values.get("camoIndex"), "models": models}
+                            "camo_index": values.get("camoIndex"), "models": models,
+                            "recolor_parent": values.get("recolorParent") or None}
+                evidence["season"], evidence["obtained"] = release_info(values)
                 db.execute("""INSERT INTO cosmetics(category,owner_guid,owner_name,skin_guid,name,quality,details)
                     VALUES(?,?,?,?,?,?,?)""", (category,owner["guid"],owner_name,skin["guid"],skin_name,
                     values.get("quality", ""),json.dumps(evidence, ensure_ascii=False)))
@@ -118,3 +120,44 @@ def lobby_lighting(skin_values, owner_values):
                         'inner_cone_degrees': float(source.get(f'{prefix}InnerCone{name}', 0) or 0),
                         'shadows': bool(source.get(f'{prefix}CastShadows{name}', True))}
     return {'custom': custom, 'lights': lights} if lights else None
+
+
+_SOURCES = (('ace', 'Anniversary Event'), ('bp', 'Battle Pass'), ('ce', 'Collection Event'), ('me', 'Milestone Event'),
+            ('lny', 'Lunar New Year'), ('fe', 'Event'), ('e', 'Event'))
+
+
+def release_info(values):
+    """(season number or None, how it was released) from the item's source tag, e.g.
+    'rui/events/s20ce02/item_source_icon' -> (20, 'Collection Event'), 'rui/events/s03bp/…' -> (3, 'Battle Pass').
+    Untagged commons are the Legend's or weapon's base skins; other untagged items are store items."""
+    tag = str(values.get('tagIcon') or '')
+    code = re.search(r'rui/events/([a-z0-9]+)/', tag)
+    if code:
+        code = code.group(1)
+        season = re.match(r's(\d+)([a-z]+)', code)
+        if season:
+            kind = season.group(2)
+            source = next((label for prefix, label in _SOURCES if kind.startswith(prefix)), 'Event')
+            return int(season.group(1)), source
+        return None, {'algs': 'ALGS', 'arenas': 'Arenas'}.get(code, 'Event')
+    if 'source_sku' in tag or 'source_retail' in tag: return None, 'Bundle'
+    if 'access' in tag: return None, 'EA Play'
+    if tag: return None, 'Event'
+    icon = re.search(r'battlepass/s(\d+)/', str(values.get('icon') or ''))
+    if icon: return int(icon.group(1)), 'Battle Pass'
+    quality = str(values.get('quality') or '').upper()
+    if quality == 'COMMON' or str(values.get('assetName') or '').endswith(('classic.rpak', 'default.rpak')):
+        return None, 'Base'
+    return None, 'Store'
+
+
+def add_release_info(db, settings_values):
+    """Fill season/source into cosmetics indexed before they were recorded (keeps row ids). Returns rows updated."""
+    updated = 0
+    for row in db.execute("SELECT id, skin_guid, details FROM cosmetics").fetchall():
+        details = json.loads(row['details'])
+        if 'obtained' in details: continue
+        details['season'], details['obtained'] = release_info(settings_values(db, row['skin_guid']))
+        db.execute("UPDATE cosmetics SET details=? WHERE id=?", (json.dumps(details, ensure_ascii=False), row['id']))
+        updated += 1
+    return updated

@@ -256,6 +256,9 @@ class SettingsPage:
             center.grid(row=0, column=1, sticky='nsew', padx=(0, 1))
             detail.grid(row=0, column=2, sticky='nsew')
             for i, weight in enumerate((2, 4, 6)): pane.columnconfigure(i, weight=weight)
+            # The list and the preview share the width 4:6 whatever the list's columns ask for, so a wide list
+            # never squeezes the preview and export controls.
+            for i in (1, 2): pane.columnconfigure(i, uniform='work')
             pane.columnconfigure(0, minsize=int(220 * scale)); pane.columnconfigure(1, minsize=int(340 * scale))
             pane.rowconfigure(0, weight=1)
         elif layout == 'Preview Focus':

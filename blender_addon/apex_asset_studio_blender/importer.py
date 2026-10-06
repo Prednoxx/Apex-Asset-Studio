@@ -70,20 +70,74 @@ def import_manifest(path: Path):
     desc,mats = build_manifest_materials(path)
     if any(t.get('role')=='alpha' for m in desc['materials'] for t in m.get('textures',[])):
         bpy.context.scene.cycles.transparent_max_bounces=max(16,bpy.context.scene.cycles.transparent_max_bounces)
-    by_name = {m.name:m for m in mats}
-    by_guid = {m['aas_guid']:m for m in mats}
     for obj in imported:
         obj['aas_manifest'] = str(path)
         obj['aas_model_guid']=desc.get('metadata',{}).get('model_guid','')
-        if obj.type != 'MESH':
-            continue
-        for slot in obj.material_slots:
-            if not slot.material:
-                continue
-            name = slot.material.name
-            matching = by_guid.get(slot.material.get('apex_guid'))
-            if matching is None:
-                matching=next((mat for key,mat in by_name.items() if name == key or name.startswith(key+'.')),None)
-            if matching:
-                slot.material = matching
+    assign_materials(imported, mats)
     return desc, mats
+
+
+def _matching(material, mats):
+    by_guid = {m['aas_guid']: m for m in mats}
+    found = by_guid.get(material.get('apex_guid'))
+    if found is None:
+        found = next((m for m in mats if material.name == m.name or material.name.startswith(m.name + '.')), None)
+    return found
+
+
+def assign_materials(objects, mats):
+    """Replace the glTF importer's placeholder materials with the built Apex materials."""
+    for obj in objects:
+        if obj.type != 'MESH': continue
+        for slot in obj.material_slots:
+            if slot.material:
+                matching = _matching(slot.material, mats)
+                if matching: slot.material = matching
+
+
+def _base_name(name):
+    head, dot, tail = name.rpartition('.')
+    return head if dot and tail.isdigit() else name
+
+
+def swap_skin(context, path: Path):
+    """Put another skin's materials (a recolor of the same model) on the model already in the scene, without
+    re-importing the mesh: the export's model is loaded briefly only to read which material sits in which slot."""
+    desc = json.loads(path.read_text(encoding='utf-8'))
+    guid = desc.get('metadata', {}).get('model_guid', '')
+    current = [o for o in context.scene.objects if o.type == 'MESH' and o.get('aas_model_guid')]
+    selected = [o for o in context.selected_objects if o.type == 'MESH' and o.get('aas_model_guid')]
+    targets = selected or current
+    if not targets: raise ValueError('Import a model first (or select it)')
+    if guid and targets[0].get('aas_model_guid') != guid:
+        raise ValueError('That export is a different model, not a recolor of this one. Import it normally instead')
+    gltf = desc.get('gltf') or desc.get('model')
+    model_path = (path.parent / gltf).resolve()
+    if not model_path.exists(): raise ValueError('The export is missing its GLB/glTF file')
+    _desc, mats = build_manifest_materials(path)
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=str(model_path))
+    temporary = [o for o in bpy.data.objects if o not in before]
+    try:
+        donors = {}
+        for obj in temporary:
+            if obj.type == 'MESH': donors.setdefault(_base_name(obj.name), obj)
+        swapped = 0
+        for obj in targets:
+            donor = donors.get(_base_name(obj.name))
+            if donor is None: continue
+            for slot, source in zip(obj.material_slots, donor.material_slots):
+                matching = _matching(source.material, mats) if source.material else None
+                if matching: slot.material = matching; swapped += 1
+            obj['aas_manifest'] = str(path)
+    finally:
+        meshes = [o.data for o in temporary if o.type == 'MESH']
+        placeholders = {s.material for o in temporary if o.type == 'MESH' for s in o.material_slots if s.material}
+        for obj in temporary: bpy.data.objects.remove(obj, do_unlink=True)
+        for mesh in meshes:
+            if mesh.users == 0: bpy.data.meshes.remove(mesh)
+        for material in placeholders:
+            if material.users == 0 and not material.get('aas_guid'): bpy.data.materials.remove(material)
+        for armature in [a for a in bpy.data.armatures if a.users == 0]: bpy.data.armatures.remove(armature)
+    if not swapped: raise ValueError("None of the model's parts matched the export")
+    return desc, swapped

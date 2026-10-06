@@ -1,13 +1,12 @@
 """Advanced page: the full asset explorer, raw string search, and diagnostics (index summary, failures and the
 log). Mixed into ApexAssetStudioApp."""
-import json
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, ttk
+from tkinter import ttk
 
 from ..rpak.rtech import OodleRuntime
-from . import appearance
+from . import appearance, widgets
 from .common import APP_NAME, APP_VERSION, asset_lines
 
 
@@ -109,7 +108,8 @@ class AdvancedPage:
         header = ttk.Frame(page)
         header.pack(fill='x', pady=(0, 12))
         ttk.Label(header, text='Index health and the log of scans, loads and errors.', style='Muted.TLabel').pack(side='left')
-        ttk.Button(header, text='Save report…', command=self.save_report).pack(side='right')
+        widgets.tip(ttk.Button(header, text='Save bug report…', command=self.save_bug_report),
+                    'One ZIP with the logs, the problems list, your settings and system details, to attach to a bug report.').pack(side='right')
         ttk.Button(header, text='Show failures', command=self.show_failures).pack(side='right', padx=6)
         ttk.Button(header, text='Refresh', style='Ghost.TButton', command=self.refresh_summary).pack(side='right')
         tiles = ttk.Frame(page)
@@ -126,6 +126,23 @@ class AdvancedPage:
         pane = ttk.Panedwindow(page, orient='vertical')
         pane.pack(fill='both', expand=True)
         mono = appearance.fonts(self)['mono']
+        problems_frame = ttk.Frame(pane, style='Panel.TFrame', padding=(14, 12, 14, 8))
+        pane.add(problems_frame, weight=1)
+        top = ttk.Frame(problems_frame, style='Panel.TFrame'); top.pack(fill='x')
+        self._section(top, 'Problems').pack(side='left', fill='x', expand=True)
+        self.problems_count_var = tk.StringVar(value='')
+        ttk.Label(top, textvariable=self.problems_count_var, style='Muted.Panel.TLabel').pack(side='left', padx=(8, 8))
+        ttk.Button(top, text='Clear', style='Ghost.Panel.TButton', command=self._clear_problems).pack(side='right')
+        ttk.Label(problems_frame, text="Skins that couldn't be loaded or exported, and why. They stay here between sessions.",
+                  style='Muted.Panel.TLabel').pack(anchor='w', pady=(2, 6))
+        table_frame = ttk.Frame(problems_frame, style='Panel.TFrame'); table_frame.pack(fill='both', expand=True)
+        self.problems_table = ttk.Treeview(table_frame, columns=('skin', 'reason', 'when'), show='headings', height=5)
+        for key, title, width, stretch in (('skin', 'Skin', 240, False), ('reason', 'Reason', 520, True), ('when', 'When', 130, False)):
+            self.problems_table.heading(key, text=title, anchor='w'); self.problems_table.column(key, width=width, stretch=stretch, anchor='w')
+        scroll = ttk.Scrollbar(table_frame, orient='vertical', command=self.problems_table.yview)
+        scroll.pack(side='right', fill='y'); self.problems_table.configure(yscrollcommand=scroll.set)
+        self.problems_table.pack(fill='both', expand=True)
+        self._show_problems()
         summary_frame = ttk.Frame(pane, style='Panel.TFrame', padding=(14, 12, 14, 0))
         log_frame = ttk.Frame(pane, style='Panel.TFrame', padding=(14, 12, 14, 0))
         pane.add(summary_frame, weight=1)
@@ -292,27 +309,6 @@ class AdvancedPage:
         for r in rows:
             self._log(f"{r['filename']} | compression={r['compression']} patch={r['patch_count']}\n  {r['error']}")
 
-    def save_report(self):
-        out = filedialog.asksaveasfilename(
-            title="Save diagnostics",
-            defaultextension=".json",
-            filetypes=[("JSON", "*.json")],
-            initialfile="ApexAssetStudio_Diagnostics.json",
-        )
-        if not out:
-            return
-        report = self.catalog.summary()
-        report["app_version"] = APP_VERSION
-        report["game_path"] = self.game_path.get()
-        try:
-            report["oodle_backend"] = OodleRuntime(Path(self.game_path.get()) if self.game_path.get() else Path.cwd()).description
-        except Exception as exc:
-            report["oodle_backend"] = f"Backend check failed: {type(exc).__name__}: {exc}"
-        report["failure_groups"] = [dict(r) for r in self.catalog.failure_groups()]
-        report["failures"] = [dict(r) for r in self.catalog.failed_containers(3000)]
-        Path(out).write_text(json.dumps(report, indent=2), encoding="utf-8")
-        self.status_var.set(f"Saved diagnostic report: {out}")
-
     def _set_asset_detail(self, text: str):
         self.asset_detail.configure(state="normal")
         self.asset_detail.delete("1.0", "end")
@@ -331,5 +327,6 @@ class AdvancedPage:
         self._start_model_load(row['guid'],row['path'])
 
     def _log(self, text):
+        self._file_log(text)
         self.log_text.insert("end", str(text) + "\n")
         self.log_text.see("end")
