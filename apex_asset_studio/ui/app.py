@@ -110,7 +110,8 @@ class ApexAssetStudioApp(tk.Tk):
         header.pack(fill='x')
         self.mascot_label = ttk.Label(header)
         self.mascot_label.pack(side='left', padx=(0, 10))
-        cyber.GlitchText(header, APP_NAME, font='brand', jp=f'素材工房  //  BUILD {APP_VERSION}').pack(side='left', padx=(0, 24))
+        self.brand = cyber.GlitchText(header, APP_NAME, font='brand', jp=f'素材工房  //  BUILD {APP_VERSION}')
+        self.brand.pack(side='left', padx=(0, 24))
         nav = ttk.Frame(header)
         nav.pack(side='left')
         self.scan_btn = ttk.Button(header, text='SCAN LIBRARY', command=self._scan_button_clicked)
@@ -126,12 +127,12 @@ class ApexAssetStudioApp(tk.Tk):
         self.game_path.trace_add('write', lambda *_: self._update_game_label())
         ttk.Frame(self, style='Hairline.TFrame', height=1).pack(fill='x')
 
-        status = ttk.Frame(self, padding=(14, 5, 14, 6))
+        status = ttk.Frame(self, padding=(14, 5, 14, 6)); self.status_frame = status
         status.pack(side='bottom', fill='x')
-        ttk.Label(status, text=' SYS ', style='Tag.TLabel').pack(side='left', padx=(0, 10))
-        ttk.Label(status, textvariable=self.status_var, style='Status.TLabel').pack(side='left')
+        self.status_tag = ttk.Label(status, text=' SYS ', style='Tag.TLabel'); self.status_tag.pack(side='left', padx=(0, 10))
+        self.status_text = ttk.Label(status, textvariable=self.status_var, style='Status.TLabel'); self.status_text.pack(side='left')
         self.clock_var = tk.StringVar()
-        ttk.Label(status, textvariable=self.clock_var, style='Clock.TLabel').pack(side='right', padx=(16, 0))
+        self.status_clock = ttk.Label(status, textvariable=self.clock_var, style='Clock.TLabel'); self.status_clock.pack(side='right', padx=(16, 0))
         self._tick_clock()
         self.progress = ttk.Progressbar(status, variable=self.progress_var, maximum=100, length=260)
         self._status_frame = status
@@ -202,10 +203,10 @@ class ApexAssetStudioApp(tk.Tk):
             headline, _, rest = text.partition('\n\n')
             self.preview_signal.show(rest or headline, headline if rest else None)
             self.preview_signal.place(relx=.5, rely=.17 if appearance.fx()['floor'] == 'sun' else .33, anchor='center')
-            self.preview_live.configure(text='○ STANDBY', fg=self.tokens['muted'] if hasattr(self, 'tokens') else '#888888')
+            self.preview_live.configure(text=getattr(self, '_hud_text', ('', '', '● LIVE', '○ STANDBY'))[3], fg=self.tokens['muted'] if hasattr(self, 'tokens') else '#888888')
         else:
             self.preview_signal.place_forget()
-            self.preview_live.configure(text='● LIVE', fg=self.tokens['accent'] if hasattr(self, 'tokens') else '#ff2e88')
+            self.preview_live.configure(text=getattr(self, '_hud_text', ('', '', '● LIVE', '○ STANDBY'))[2], fg=self.tokens['accent'] if hasattr(self, 'tokens') else '#ff2e88')
 
     def _swap_selection_tags(self, _event=None):
         # Row tags (rarity colors) override the selection foreground; lift them off the selected row.
@@ -544,12 +545,24 @@ class ApexAssetStudioApp(tk.Tk):
         f = appearance.fonts(self)
         self.simple_tree.tag_configure('category', foreground=c['accent2'], font=f['section'])
         self.simple_assets.tag_configure('muted', foreground=c['faint'])
-        for rarity, color in appearance.RARITY.items(): self.simple_assets.tag_configure(rarity, foreground=color)
+        for rarity, color in appearance.rarity(c).items(): self.simple_assets.tag_configure(rarity, foreground=color)
+        band = appearance.fx().get('promo', False)
+        self.status_frame.configure(style='Band.TFrame' if band else 'TFrame')
+        self.status_tag.configure(style='BandTag.TLabel' if band else 'Tag.TLabel', text=' ♪ ' if band else ' SYS ')
+        self.status_text.configure(style='Band.TLabel' if band else 'Status.TLabel')
+        self.status_clock.configure(style='Band.TLabel' if band else 'Clock.TLabel')
         for label, fg in ((self.preview_hint, c['faint']), (self.preview_cam, c['accent2']),
                           (self.preview_live, c['accent'] if self._model else c['muted'])):
             label.configure(background=appearance.mix('#ffffff', c['viewport'], .03 if label is not self.preview_hint else .0), foreground=fg)
         for label in (self.preview_hint, self.preview_cam, self.preview_live): label.configure(font=f['mono_small'])
-        self.preview_cam.configure(text=appearance.jp('CAM-01 // 映像') or 'CAM-01')
+        hud = appearance.fx().get('hud', ('CAM-01 // 映像', 'DRAG ORBIT  //  SHIFT·RMB PAN  //  WHEEL ZOOM', '● LIVE', '○ STANDBY'))
+        self._hud_text = hud
+        self.preview_cam.configure(text=appearance.jp(hud[0]) or 'CAM-01')
+        self.preview_hint.configure(text=hud[1])
+        self.preview_live.configure(text=hud[2] if self._model else hud[3])
+        if appearance.fx().get('promo'):
+            for label in (self.preview_hint, self.preview_cam, self.preview_live): label.configure(font=f['small'])
+        if not self._scanning: self.scan_btn.configure(text='SCAN LIBRARY' if appearance.fx()['upper'] else 'Scan library')
         cyber.refresh(self, c)
         self._sync_nav()
         if hasattr(self, '_inspector_raw'): self._set_inspector(*self._inspector_raw)
@@ -615,8 +628,11 @@ class ApexAssetStudioApp(tk.Tk):
                 self._mascot_image = ImageTk.PhotoImage(header)
                 icon = image.copy(); icon.thumbnail((64, 64), Image.Resampling.LANCZOS)
                 icon_image = ImageTk.PhotoImage(icon)
+                self._avatar_image = ImageTk.PhotoImage(appearance.avatar(image, 50, self.tokens['accent'], default=not self.appearance['mascot_path']))
+                cyber.AVATAR['image'] = self._avatar_image
             self.mascot_portrait.configure(image=self._mascot_portrait_image)
-            if self.appearance['show_mascot']:
+            if hasattr(self, 'brand') and self.brand.t: self.brand.redraw(self.brand.t)
+            if self.appearance['show_mascot'] and not appearance.fx().get('promo'):
                 self.mascot_label.configure(image=self._mascot_image); self.mascot_label.pack(side='left', padx=(0, 10), before=self.mascot_label.master.winfo_children()[1])
             else:
                 self.mascot_label.pack_forget()
@@ -804,14 +820,14 @@ class ApexAssetStudioApp(tk.Tk):
             self.lod_choice.configure(state='disabled')
         if scanning:
             self.progress.pack(side="right")
-            self.scan_btn.configure(text="Stop Scan")
+            self.scan_btn.configure(text="STOP SCAN" if appearance.fx()["upper"] else "Stop scan")
             self.scan_btn.state(["!disabled"])
             self.path_entry.state(["disabled"])
             self.detect_btn.state(["disabled"])
             self.browse_btn.state(["disabled"])
         else:
             self.progress.pack_forget()
-            self.scan_btn.configure(text="Scan Library")
+            self.scan_btn.configure(text="SCAN LIBRARY" if appearance.fx()["upper"] else "Scan library")
             self.scan_btn.state(["!disabled"])
             self.path_entry.state(["!disabled"])
             self.detect_btn.state(["!disabled"])
@@ -971,7 +987,7 @@ class ApexAssetStudioApp(tk.Tk):
         for owner in owners:
             category = owner['category']
             if category not in categories:
-                categories[category] = self.simple_tree.insert('', 'end', text='// ' + str(category).upper(), open=True, tags=('category',))
+                categories[category] = self.simple_tree.insert('', 'end', text=appearance.fx().get('cat_prefix', '// ') + (str(category).upper() if appearance.fx()['upper'] or 'cat_prefix' not in appearance.fx() else str(category)), open=True, tags=('category',))
             iid = self.simple_tree.insert(categories[category], 'end', text=owner['owner_name'], values=(f'{owner["count"]:,}',))
             self._simple_sections[iid] = ('owner', owner['owner_guid'])
         sections = [s for s in self.catalog.simple_sections() if 'mdl_' in s['types']]
@@ -981,7 +997,7 @@ class ApexAssetStudioApp(tk.Tk):
             self._set_inspector('Nothing selected'); self._set_simple_info('')
             return
         if sections:
-            group = self.simple_tree.insert('', 'end', text='// RAW ASSETS', open=True, tags=('category',))
+            group = self.simple_tree.insert('', 'end', text=appearance.fx().get('cat_prefix', '// ') + ('Raw assets' if 'cat_prefix' in appearance.fx() and not appearance.fx()['upper'] else 'RAW ASSETS'), open=True, tags=('category',))
             for section in sections:
                 iid = self.simple_tree.insert(group, 'end', text=section['label'], values=(f'{section["count"]:,}',))
                 self._simple_sections[iid] = ('raw', tuple(section['types']))

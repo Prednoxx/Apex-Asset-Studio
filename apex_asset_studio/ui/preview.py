@@ -222,6 +222,29 @@ class ModelPreview(OpenGLFrame):
                 GL.glColor3f(*line(.42)); GL.glVertex2f(i*.32,-1)
             GL.glColor3f(*line(.55)); GL.glVertex2f(-1,horizon); GL.glVertex2f(1,horizon)
             GL.glEnd()
+        elif floor=='promo':
+            # airy promo backdrop: hexagon outlines on the right, soft floating squares, dotted rain lines lower-left
+            size=.075; dx=size*1.732; GL.glBegin(GL.GL_LINES)
+            for row in range(-14,15):
+                for col in range(0,16):
+                    cx=.25+col*dx/aspect+(dx/2/aspect if row%2 else 0); cy=row*size*1.5
+                    fade=max(0.,min(1.,(cx-.25)*2.2))
+                    if fade<=0: continue
+                    GL.glColor3f(*tint(.10*fade+.02))
+                    pts=[(cx+size*_c/aspect,cy+size*_s) for _c,_s in ((0,1),(.866,.5),(.866,-.5),(0,-1),(-.866,-.5),(-.866,.5))]
+                    for a2,b2 in zip(pts,pts[1:]+pts[:1]): GL.glVertex2f(*a2); GL.glVertex2f(*b2)
+            for i in range(26):
+                x=-.95+i*.028; length=.25+((i*37)%11)/22
+                for k in range(int(length/.02)):
+                    y=-1+k*.02
+                    if k%2==0:
+                        GL.glColor3f(*tint(.16)); GL.glVertex2f(x,y); GL.glVertex2f(x,y+.01)
+            GL.glEnd()
+            GL.glBegin(GL.GL_QUADS)
+            for x0,y0,sz,amount in ((-.7,.45,.16,.05),(-.35,.62,.09,.04),(.05,.3,.12,.035),(-.85,-.1,.1,.03),(.55,-.55,.14,.04)):
+                GL.glColor3f(*tint(amount*1.3))
+                GL.glVertex2f(x0,y0); GL.glVertex2f(x0+sz/aspect,y0); GL.glVertex2f(x0+sz/aspect,y0+sz); GL.glVertex2f(x0,y0+sz)
+            GL.glEnd()
         elif floor=='halftone':
             # halftone dots swelling toward the lower-left corner plus two soft diagonal light bands
             GL.glBegin(GL.GL_QUADS)

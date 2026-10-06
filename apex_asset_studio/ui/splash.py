@@ -29,6 +29,12 @@ def _neon_art(path, size, t, split=True, scan=True):
     return out
 
 
+def _plain_art(path, size):
+    with Image.open(path) as image:
+        art = image.convert('RGBA'); art.thumbnail(size, Image.Resampling.LANCZOS)
+    return art
+
+
 class StartupSplash(tk.Toplevel):
     def __init__(self, app, colors=None, logo_path=None, version=''):
         super().__init__(app)
@@ -43,7 +49,9 @@ class StartupSplash(tk.Toplevel):
         c.place(x=1, y=1); self.canvas = c
         W, H = width-2, height-2
 
-        fx = appearance.fx()
+        fx = appearance.fx(); self.promo = bool(fx.get('promo'))
+        if self.promo:
+            self._build_promo(c, W, H, t, f, logo_path, version); self.lift(); self.update(); return
         grid = appearance.mix(t['border'], t['background'], .45)
         if not fx.get('art_slab'):
             for gx in range(0, W, 28): c.create_line(gx, 0, gx, H, fill=grid)
@@ -91,9 +99,63 @@ class StartupSplash(tk.Toplevel):
         self.status = c.create_text(x, sy - 22, text='INITIALIZING', anchor='nw', fill=t['accent'], font=f['mono'])
         self.lift(); self.update()
 
+    def _build_promo(self, c, W, H, t, f, logo_path, version):
+        """Bright promo-poster layout: diagonal band, giant thin numeral, confetti, big thin date."""
+        import datetime, random
+        pale = appearance.mix(t['accent'], '#ffffff', .13)
+        for k in range(-20, 30):  # diamond lattice, right side
+            x = 500 + k * 34
+            c.create_line(x, 0, x + H, H, fill=pale); c.create_line(x, 0, x - H, H, fill=pale)
+        c.create_rectangle(0, 0, 470, H, fill='#ffffff', outline='')
+        rng = random.Random(4)
+        for i in range(22):  # dotted rain lines lower-left
+            x = 18 + i * 9; top = H - rng.randint(60, 170)
+            for y in range(top, H, 6): c.create_line(x, y, x, y + 3, fill=appearance.mix(t['accent'], '#ffffff', .35))
+        band = (0, 180, W, 30, W, 170, 0, 310)
+        c.create_polygon(*band, fill=t['accent'], outline='')
+        c.create_text(-14, 250, text='0.3', anchor='w', fill=appearance.mix('#ffffff', t['accent'], .25), font=(f['display'][0], 150))
+        cyber.confetti(c, 0, 0, W, H, 26, 11, 4, 20, avoid=(360, 40, W, 440))
+        cyber.confetti(c, 360, 0, W - 360, H, 8, 5, 3, 8, avoid=(370, 60, W, 400))
+        path = Path(logo_path) if logo_path else Path(__file__).resolve().parents[1]/'resources'/'asuka.webp'
+        try:
+            self.art = ImageTk.PhotoImage(_plain_art(path, (300, H - 14)))
+            c.create_image(205, H, image=self.art, anchor='s')
+        except (OSError, ValueError):
+            pass
+        x = 392
+        c.create_text(x, 132, text='Apex Asset Studio', anchor='w', fill='#ffffff', font=(f['title'][0], 30))
+        c.create_text(x + 2, 170, text='モデル・マテリアル・アニメーション書き出しツール', anchor='w', fill='#ffffff', font=f['jp_title'])
+        today = datetime.date.today()
+        c.create_text(x, 284, text=f'{today.year}.', anchor='sw', fill=t['text'], font=(f['title'][0], 18))
+        year_w = tk.font.Font(font=(f['title'][0], 18)).measure(f'{today.year}.')
+        big = (f['display'][0], 44)
+        c.create_text(x + year_w, 292, text=f'{today.month}/{today.day:02d}', anchor='sw', fill=t['text'], font=big)
+        big_w = tk.font.Font(font=big).measure(f'{today.month}/{today.day:02d}')
+        c.create_text(x + year_w + big_w + 4, 284, text=f"({today.strftime('%a')})", anchor='sw', fill=t['text'], font=(f['title'][0], 18))
+        c.create_text(x + 2, 304, text=f'Build {version}  ·  起動中です！ご期待ください ♪', anchor='nw', fill=t['muted'], font=f['jp_title'])
+        self._boot = appearance.fx()['boot']
+        self.status = c.create_text(W - 18, 22, text='Starting…', anchor='ne', fill=t['accent'], font=f['section'])
+        self._log_x, self._log_y = x + 2, 336
+        self._lines = []; self._segments = []
+        for i in range(STAGES * 4):
+            cx = x + 8 + i * 17; cy = H - 24
+            self._segments.append(c.create_oval(cx - 5, cy - 5, cx + 5, cy + 5, fill=t['raised'], outline=''))
+
     def stage(self, message):
         if self._closed: return
         t, f, c = self.t, self.f, self.canvas
+        if self.promo:
+            if self._lines: c.itemconfigure(self._lines[-1][1], text='✓', fill=t['accent'])
+            self._step += 1
+            y = self._log_y + len(self._lines) * 16
+            line = c.create_text(self._log_x, y, text=message.rstrip('…'), anchor='nw', fill=t['muted'], font=f['body'])
+            state = c.create_text(self._log_x + 230, y, text='…', anchor='nw', fill=t['accent2'], font=f['body'])
+            self._lines.append((line, state))
+            filled = round(len(self._segments) * min(1, self._step / STAGES))
+            for i, seg in enumerate(self._segments):
+                c.itemconfigure(seg, fill=appearance.CONFETTI[i % len(appearance.CONFETTI)] if i < filled else t['raised'])
+            c.itemconfigure(self.status, text=self._boot[1] if message == 'Ready' else self._boot[0])
+            self.update(); return
         if self._lines:
             c.itemconfigure(self._lines[-1][1], text='OK', fill=t['accent2'])
         self._step += 1
@@ -111,7 +173,7 @@ class StartupSplash(tk.Toplevel):
 
     def finish(self, app):
         self.stage('Ready')
-        if self._lines: self.canvas.itemconfigure(self._lines[-1][1], text='GO', fill=self.t['accent'])
+        if self._lines: self.canvas.itemconfigure(self._lines[-1][1], text='♪' if self.promo else 'GO', fill=self.t['accent'])
         self.update()
         delay = max(0, int((1.4-(time.monotonic()-self.started))*1000))
         def reveal():

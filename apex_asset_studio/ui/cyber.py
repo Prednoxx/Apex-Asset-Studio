@@ -3,9 +3,20 @@ viewport brackets, the primary action button and the empty-viewport placeholder.
 
 Every widget here has redraw(tokens); call refresh(app, tokens) after a style or palette change.
 """
+import random
 import tkinter as tk
 import tkinter.font
 from . import appearance
+
+AVATAR = {}  # 'image': circular avatar PhotoImage provided by the app (promo styles)
+
+
+def confetti(c, x0, y0, w, h, count, seed, rmin=3, rmax=9, avoid=None):
+    rng = random.Random(seed)
+    for _ in range(count):
+        r = rng.uniform(rmin, rmax); x = rng.uniform(x0 + r, x0 + w - r); y = rng.uniform(y0 + r, y0 + h - r)
+        if avoid and avoid[0] < x < avoid[2] and avoid[1] < y < avoid[3]: continue
+        c.create_oval(x - r, y - r, x + r, y + r, fill=rng.choice(appearance.CONFETTI), outline='')
 
 
 def _registry(app):
@@ -109,6 +120,12 @@ def draw_ornament(c, t, x0, y0, w, h, kind=None):
             sx = end + 6 + i * (h + 4)
             c.create_polygon(sx, y0, sx + h * .6, y0, sx - h * .4, y0 + h, sx - h, y0 + h, fill=t['accent2'], outline='')
         c.create_rectangle(end + 6 + 3 * (h + 4), y0 + h - 2, x0 + w, y0 + h - 1, fill=t['border'], outline='')
+    elif kind == 'confetti':
+        c.create_rectangle(x0, y0 + h - 2, x0 + w, y0 + h, fill=t['accent'], outline='')
+        rng = random.Random(7)
+        for x in range(int(x0) + 30, int(x0 + w), 90):
+            r = rng.uniform(1.5, h / 2 - .5)
+            c.create_oval(x - r, y0 + h/2 - r - 1, x + r, y0 + h/2 + r - 1, fill=rng.choice(appearance.CONFETTI), outline='')
     elif kind == 'chevrons':
         c.create_rectangle(x0, y0, x0 + w, y0 + h, fill=t['background'], outline='')
         for x in range(int(x0) - h, int(x0 + w), 18):
@@ -124,6 +141,8 @@ class GlitchText(_Base):
 
     def _resize(self):
         f = self.fonts()
+        if appearance.fx().get('promo') and self.font_key == 'brand':
+            self.configure(width=_measure(f['brand'], self.text) + 175, height=58); return
         width = _measure(f[self.font_key], self.shown()) + 10 + self.pad[0]*2
         height = _line(f[self.font_key]) + 4 + self.pad[1]*2
         sub = appearance.jp(self.jp)
@@ -134,8 +153,24 @@ class GlitchText(_Base):
     def shown(self):
         return self.text.upper() if appearance.fx()['upper'] else self.text
 
+    def _promo_plate(self, t):
+        f = self.fonts(); w, h = int(self.cget('width')), int(self.cget('height'))
+        self.create_polygon(0, 8, w - 4, 2, w - 22, h - 4, 0, h - 2, fill=t['accent'], outline='')
+        self.create_text(w - 30, h / 2 + 2, text='0.3', anchor='e', fill=appearance.mix('#ffffff', t['accent'], .22),
+                         font=(f['display'][0], 34))
+        image = AVATAR.get('image')
+        if image:
+            self.create_oval(4, 1, 58, 55, fill='#ffffff', outline='')
+            self.create_image(31, 28, image=image)
+        self.create_text(66, h / 2 - 7, text=self.text, anchor='w', fill='#ffffff', font=f['brand'])
+        sub = appearance.jp(self.jp)
+        if sub: self.create_text(67, h / 2 + 14, text=sub, anchor='w', fill=appearance.mix('#ffffff', t['accent'], .8), font=f['jp'])
+        for x, y, r, color in ((w - 10, 10, 4, appearance.CONFETTI[1]), (w - 30, h - 6, 3, appearance.CONFETTI[0]), (60, 6, 2.5, appearance.CONFETTI[4])):
+            self.create_oval(x - r, y - r, x + r, y + r, fill=color, outline='')
+
     def redraw(self, t):
         self.t = t; self._resize(); self.delete('all'); self.configure(background=t[self.on])
+        if appearance.fx().get('promo') and self.font_key == 'brand': return self._promo_plate(t)
         f = self.fonts(); x, y = 3 + self.pad[0], 1 + self.pad[1]
         styled_text(self, x, y, self.shown(), f[self.font_key], t)
         sub = appearance.jp(self.jp)
@@ -159,6 +194,9 @@ class SectionTag(_Base):
             x1 = label + 20
             self.create_polygon(0, 3, x1, 3, x1 - 6, h - 3, 0, h - 3, fill=t['accent2'], outline='')
             self.create_text(7, mid, text=text, anchor='w', fill=t['accent2_text'], font=f['section'])
+        elif kind == 'underline':
+            self.create_text(0, mid - 1, text=text, anchor='w', fill=t['accent'], font=f['section'])
+            x1 = label
         elif kind == 'skew':
             self.create_polygon(0, 2, 10, 2, 4, h - 2, -6, h - 2, fill=t['accent'], outline='')
             x1 = label + 30
@@ -182,7 +220,13 @@ class SectionTag(_Base):
             self.create_text(x, mid, text=sub, anchor='w', fill=t['muted'], font=f['jp'])
             x += _measure(f['jp'], sub) + 10
         if x >= w - 10: return
-        if kind == 'skew':
+        if kind == 'underline':
+            self.create_rectangle(0, h - 2, w, h - 1, fill=t['accent'], outline='')
+            rng = random.Random(len(self.text))
+            for i in range(3):
+                r = 3 - i * .6; cx = w - 8 - i * 11
+                self.create_oval(cx - r, mid - r - 1, cx + r, mid + r - 1, fill=rng.choice(appearance.CONFETTI), outline='')
+        elif kind == 'skew':
             self.create_rectangle(x, h - 4, w, h - 3, fill=t['border'], outline='')
             for i in range(3):
                 sx = w - 30 + i * 9
@@ -242,7 +286,14 @@ class NeonButton(_Base):
         else:
             fill = t['accent2'] if self._hover and not self._pressed else t['accent']
             edge = fill; ink = t['accent2_text'] if self._hover and not self._pressed else t['accent_text']
-        if kind == 'skew':
+        if kind == 'flat':
+            if not self._disabled and self._hover: fill = t['accent2']
+            self.create_rectangle(0, 0, w, h, fill=fill, outline=edge if self._disabled else '')
+            r = h * .3; cx = w - h / 2
+            self.create_oval(cx - r, h/2 - r, cx + r, h/2 + r, fill='#ffffff' if not self._disabled else t['border'], outline='')
+            self.create_text(cx + 1, h/2 - 1, text='›', fill=fill if not self._disabled else t['faint'], font=f['strong'])
+            tx = 16
+        elif kind == 'skew':
             k = h * .35
             if not self._disabled and self._hover:
                 fill, ink = t['text'], t['background']
@@ -294,6 +345,9 @@ class Bracket(_Base):
         dx = 1 if 'w' in self.corner else -1; dy = 1 if 'n' in self.corner else -1
         if kind == 'pill':
             _star(self, s/2, s/2, s/2 - 1, c)
+        elif kind == 'underline':
+            color = appearance.CONFETTI[{'nw': 0, 'ne': 2, 'sw': 4, 'se': 1}[self.corner]]
+            self.create_oval(s/2 - 4, s/2 - 4, s/2 + 4, s/2 + 4, fill=color, outline='')
         elif kind == 'skew':
             c = t['accent']
             self.create_line(x, y + dy*s, x, y, x + dx*s, y, fill=c, width=3)
@@ -316,6 +370,12 @@ class Signal(_Base):
         f = self.fonts(); fx = appearance.fx(); cx = 220
         headline, jp = fx['signal']
         if self.headline: headline = self.headline.upper() if fx['upper'] else self.headline
+        if fx.get('promo'):
+            self.create_text(cx, 34, text=headline, fill=t['text'], font=f['placeholder'])
+            self.create_text(cx, 70, text=jp, fill=t['accent'], font=f['jp_title'])
+            self.create_text(cx, 98, text=self.message, fill=t['muted'], font=f['body'], width=420, justify='center')
+            confetti(self, 0, 0, 440, 130, 9, 3, 2, 6, avoid=(70, 8, 370, 115))
+            return
         styled_text(self, cx, 34, headline, f['placeholder'], t, anchor='center',
                     fill=t['text'] if fx['glitch'] or fx['tag'] == 'skew' else t['accent'], glitch_amount=3)
         if fx['glitch']:

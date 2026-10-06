@@ -102,8 +102,42 @@ STYLES.update({
         dict(background='#0b0b0b', surface='#131313', raised='#1d1d1d', border='#2d2d2d', text='#f6f5f0',
              muted='#8e8d86', accent='#f5b800', accent2='#ffffff', viewport='#080808')),
 })
+_POP_LIGHT = ('Segoe UI Light', 'Yu Gothic UI Light', 'M PLUS 1p Light', 'Segoe UI')
+_POP_UI = ('Segoe UI', 'Yu Gothic UI', 'M PLUS 1p')
+_POP_SEMI = (('Segoe UI Semibold', 'normal'), ('Yu Gothic UI Semibold', 'normal'), ('M PLUS 1p', 'bold'))
+_POP_FONTS = _fontset(_POP_UI, _POP_LIGHT, ('Cascadia Mono', 'Consolas', 'DejaVu Sans Mono'), ui_size=10, head_scale=1.15,
+                      title_size=26, display_size=50, mono_size=9, jp=('Yu Gothic UI', 'M PLUS 1p'), jp_size=9)
+_POP_FONTS.update(section=_F(_POP_SEMI, 10), strong=_F(_POP_SEMI, 10), nav=_F(_POP_LIGHT, 13),
+                  data=_F(_POP_UI, 10), jp_big=_F(('Yu Gothic UI Light', 'M PLUS 1p Light'), 30),
+                  brand=_F(_POP_LIGHT, 17), jp_title=_F(('Yu Gothic UI', 'M PLUS 1p'), 11))
+CONFETTI = ('#c64bd0', '#ffe94a', '#39c4f4', '#f26b3a', '#8cc63f', '#ff6fae')
+
+
+def _pop(blurb, colors):
+    return dict(blurb=blurb, colors=colors, fonts=_POP_FONTS,
+                fx=dict(glitch=False, ornament='confetti', tag='underline', button='flat', floor='promo', scanlines=False,
+                        upper=False, show_jp=True, promo=True, leading=1.0, nav='{label}', cat_prefix='',
+                        hud=('プレビュー  ·  Preview', 'Drag to rotate  ·  Shift-drag to pan  ·  Scroll to zoom', '● Live', '○ Standby'),
+                        signal=('Pick a skin', 'スキンを選んでね ♪'), boot=('Asset Studio  ·  起動中', 'Ready!  ·  準備完了')))
+
+
+STYLES.update({
+    'Sky Pop': _pop('Bright Japanese promo look: sky blue on white, thin type, confetti dots, round avatar.',
+        dict(background='#ffffff', surface='#f6fbff', raised='#e8f3fd', border='#cfe3f6', text='#2c3542',
+             muted='#7c8a9b', accent='#3aa0ec', accent2='#ff6fae', viewport='#eef6fd', ink='#ffffff')),
+    'Sakura Pop': _pop('The same promo look in sakura pink with sky-blue highlights.',
+        dict(background='#ffffff', surface='#fff8fb', raised='#fdebf3', border='#f5d2e3', text='#3b2d38',
+             muted='#937f8d', accent='#f0609e', accent2='#3aa0ec', viewport='#fdf1f7', ink='#ffffff')),
+})
 PRESETS = {name: style['colors'] for name, style in STYLES.items()}
 DEFAULT_STYLE = 'Neon Cybercore'
+
+
+def rarity(t):
+    """Rarity text colors, deepened on light palettes so they stay readable."""
+    if not t.get('light'): return dict(RARITY)
+    return {'common': '#7d7a86', 'rare': '#1d87cf', 'epic': '#9147cf', 'legendary': '#c98a00',
+            'mythic': '#e0335a', 'heirloom': '#e0335a', 'iconic': '#e0335a'}
 DEFAULT_PRESET = DEFAULT_STYLE
 ACTIVE = {'style': DEFAULT_STYLE}
 
@@ -190,6 +224,8 @@ def tokens(colors):
     t['selection_text'] = dark_text if luminance(t['accent']) > .18 else '#ffffff'
     t['accent_text'] = t['selection_text']
     t['accent2_text'] = dark_text if luminance(t['accent2']) > .18 else '#ffffff'
+    ink = colors.get('ink') or style()['colors'].get('ink')
+    if ink: t['selection_text'] = t['accent_text'] = t['accent2_text'] = ink
     t['light'] = luminance(t['surface']) > .5
     t['hover'] = mix(t['accent2'], t['raised'], .10)
     t['glow'] = mix(t['accent'], t['surface'], .22)
@@ -235,6 +271,22 @@ def fonts(app, name=None):
         resolved[key] = (family, size, chosen) if chosen != 'normal' else (family, size)
     _FONT_CACHE[name] = resolved
     return resolved
+
+
+def avatar(image, size, ring, default=True):
+    """Round avatar: the artwork's face area on a colored disc (the art's transparency shows the disc)."""
+    from PIL import Image, ImageDraw
+    w, h = image.size
+    if default:  # tuned for the bundled artwork
+        box = (int(w*.25), int(h*.01), int(w*.87), int(h*.01 + w*.62))
+    else:
+        side = int(min(w, h) * .6); left = (w - side) // 2
+        box = (left, 0, left + side, side)
+    crop = image.crop(box).resize((size*4, size*4), Image.Resampling.LANCZOS)
+    disc = Image.new('RGBA', crop.size, (*_rgb(ring), 255)); disc.alpha_composite(crop)
+    mask = Image.new('L', crop.size, 0); ImageDraw.Draw(mask).ellipse((0, 0, crop.width - 1, crop.height - 1), fill=255)
+    disc.putalpha(mask)
+    return disc.resize((size, size), Image.Resampling.LANCZOS)
 
 
 def _png(image):
@@ -342,6 +394,9 @@ def apply(app, value):
     style.configure('Stat.Card.TLabel', font=f['stat'], foreground=c['accent2'])
     style.configure('Placeholder.TLabel', background=c['raised'], foreground=c['faint'], font=f['body'])
     style.configure('Status.TLabel', foreground=c['muted'], font=f['mono'])
+    style.configure('Band.TFrame', background=c['accent'])
+    style.configure('Band.TLabel', background=c['accent'], foreground=c['accent_text'], font=f['body'])
+    style.configure('BandTag.TLabel', background=c['accent_text'], foreground=c['accent'], font=f['mono_small'])
     style.configure('Clock.TLabel', foreground=c['accent2'], font=f['mono'])
     style.configure('Path.TLabel', foreground=c['muted'], font=f['mono_small'])
     style.configure('Dot.TLabel', foreground=c['accent2'], font=f['small'])
