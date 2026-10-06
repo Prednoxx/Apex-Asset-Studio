@@ -19,4 +19,4 @@ No proprietary Oodle DLL is bundled by Apex Asset Studio. If pyooz is unavailabl
 
 Apex Legends and related names/assets are property of their respective owners. This tool contains no Apex game assets.
 
-Asuka artwork: Evangelion. Original artist uncredited; character and artwork rights remain with their respective owners. The image is excluded from the application's AGPL license. File provenance is in apex_asset_studio/resources/ARTWORK_SOURCE.md. Apex Asset Studio is not affiliated with Evangelion or khara.
+Ruka-tan artwork (mascot): original artists uncredited; character and artwork rights remain with their respective owners. The images are excluded from the application's AGPL license. File provenance is in apex_asset_studio/resources/ARTWORK_SOURCE.md.
