@@ -778,8 +778,6 @@ class ApexAssetStudioApp(tk.Tk):
                 self._mascot_portrait_image = ImageTk.PhotoImage(portrait)
                 header = image.copy(); header.thumbnail((40, 30), Image.Resampling.LANCZOS)
                 self._mascot_image = ImageTk.PhotoImage(header)
-                icon = image.copy(); icon.thumbnail((64, 64), Image.Resampling.LANCZOS)
-                icon_image = ImageTk.PhotoImage(icon)
                 self._avatar_image = ImageTk.PhotoImage(appearance.avatar(image, 50, self.tokens['accent'], default=not self.appearance['mascot_path']))
                 cyber.AVATAR['image'] = self._avatar_image
                 from . import gloss
@@ -793,11 +791,22 @@ class ApexAssetStudioApp(tk.Tk):
                 self.mascot_label.configure(image=self._mascot_image); self.mascot_label.pack(side='left', padx=(0, 10), before=self.mascot_label.master.winfo_children()[1])
             else:
                 self.mascot_label.pack_forget()
-            if hasattr(self, '_icon_image'): return
-            self._icon_image = icon_image; self.iconphoto(True, self._icon_image)
+            self._set_window_icon(image)
         except (OSError, ValueError):
             self.mascot_label.configure(image='')
             self.appearance_status.configure(text='Mascot image not found or unsupported.')
+
+    def _set_window_icon(self, image):
+        """Title-bar and taskbar icon: the same round glass avatar as the header, at every size Windows asks for."""
+        from . import gloss
+        face = appearance.face_crop(image, not self.appearance['mascot_path'])
+        key = (self.appearance['mascot_path'], self.tokens['accent'])
+        if getattr(self, '_icon_key', None) == key: return
+        self._icon_key = key
+        icons = gloss.icon_set(face, self.tokens['accent'])
+        self._icon_images = [ImageTk.PhotoImage(icons[size]) for size in (256, 128, 64, 48, 32, 16)]
+        self._icon_image = self._icon_images[2]
+        self.iconphoto(True, *self._icon_images)
 
     def _choose_mascot(self):
         path = filedialog.askopenfilename(parent=self, title='Choose mascot image', filetypes=[('Images','*.png *.jpg *.jpeg *.webp'), ('All files','*.*')])
@@ -807,12 +816,10 @@ class ApexAssetStudioApp(tk.Tk):
         except (OSError, ValueError):
             self.appearance_status.configure(text='Cannot open image.'); return
         self.appearance['mascot_path'] = path; self.appearance['show_mascot'] = True; self.mascot_var.set(True)
-        if hasattr(self, '_icon_image'): del self._icon_image
         self._apply_appearance()
 
     def _restore_mascot(self):
         self.appearance['mascot_path'] = ''; self.appearance['show_mascot'] = True; self.mascot_var.set(True)
-        if hasattr(self, '_icon_image'): del self._icon_image
         self._apply_appearance()
 
     # ------------------------------------------------------------------ explorer page
@@ -1799,5 +1806,12 @@ class ApexAssetStudioApp(tk.Tk):
 
 
 def main():
+    if os.name == 'nt':
+        # Own taskbar identity, so Windows shows the app's icon instead of grouping it under python.exe.
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('ApexAssetStudio.Desktop')
+        except (OSError, AttributeError):
+            pass
     app = ApexAssetStudioApp()
     app.mainloop()

@@ -36,7 +36,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['apex_asset_studio/resources/asuka.ico'],
+    icon=['apex_asset_studio/resources/app_icon.ico'],
 )
 coll = COLLECT(
     exe,

@@ -177,3 +177,28 @@ def companion(accent):
     h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
     r, g, b = colorsys.hsv_to_rgb((h + .075) % 1, max(.55, s * .9), min(1, v * 1.08 + .05))
     return hexcolor((r * 255, g * 255, b * 255))
+
+
+ICON_SIZES = (256, 128, 64, 48, 32, 24, 16)
+
+
+def icon_set(face, accent):
+    """Round app icons at every Windows icon size. Small sizes get a tighter face crop and a bolder rim so the
+    circle still reads at 16 px."""
+    out = {}
+    for size in ICON_SIZES:
+        art = face
+        if size <= 32:  # zoom in on the face so it isn't a smudge
+            w, h = face.size; inset = int(w * .12)
+            art = face.crop((inset, int(h * .06), w - inset, int(h * .06) + w - 2 * inset))
+        render = max(size, 64)
+        image = orb(render, art, accent)
+        if size < render:
+            image = image.resize((size, size), Image.Resampling.LANCZOS)
+        out[size] = image
+    return out
+
+
+def save_ico(face, accent, path):
+    images = icon_set(face, accent)
+    images[256].save(path, format='ICO', sizes=[(s, s) for s in ICON_SIZES], append_images=[images[s] for s in ICON_SIZES[1:]])

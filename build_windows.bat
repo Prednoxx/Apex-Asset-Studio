@@ -10,7 +10,7 @@ if not exist .venv\Scripts\python.exe (
   --distpath dist\native-preview --workpath build\native-preview ^
   --hidden-import ooz --hidden-import texture2ddecoder ^
   --collect-submodules OpenGL --hidden-import pyopengltk.win32 ^
-  --icon "apex_asset_studio\resources\asuka.ico" ^
+  --icon "apex_asset_studio\resources\app_icon.ico" ^
   --add-data "apex_asset_studio\resources;apex_asset_studio\resources" ^
   --add-data "third_party\dxc;third_party\dxc" ^
   --add-data "blender_addon\ApexAssetStudio_Blender_5.2.zip;blender_addon" ^
