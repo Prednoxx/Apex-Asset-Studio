@@ -58,7 +58,7 @@ class LibraryPage:
         self._simple_sections: dict[str, tuple[str, ...]] = {}
 
     def _viewport_hint(self, inside, keys=False):
-        hint = ('Arrow keys rotate  ·  Shift+arrows pan  ·  + / − zoom  ·  R resets the view  ·  Tab moves on' if keys else
+        hint = ('Arrow keys rotate  ·  Shift+arrows pan  ·  + / − zoom  ·  R resets the view' if keys else
                 'Drag to rotate  ·  Shift-drag or right-drag to pan  ·  Scroll to zoom  ·  R resets the view')
         if inside:
             self._status_before_hint = self.status_var.get(); self.status_var.set(hint)

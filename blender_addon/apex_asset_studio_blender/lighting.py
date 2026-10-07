@@ -41,7 +41,7 @@ PRESETS = {
         _light('AREA', 50, 12, energy=180, color=COOL, size=1.0, name='Fill'),
         _light('AREA', 160, 40, energy=550, size=.4, name='Back')],
         _world((.18, .18, .19), (.12, .12, .13), (.05, .05, .05), .6)),
-    'RIM': ('Rim Light', 'Two strong lights from behind outline the silhouette; a soft front fill keeps the face readable', [
+    'RIM': ('Rim Light', 'Two strong back lights outline the silhouette, with a soft front fill', [
         _light('AREA', 135, 22, energy=900, size=.35, name='Rim Left'),
         _light('AREA', -135, 22, energy=900, size=.35, name='Rim Right'),
         _light('AREA', 0, 6, distance=3.0, energy=45, size=1.6, name='Front Fill')],
@@ -51,7 +51,7 @@ PRESETS = {
         _light('AREA', 65, 15, energy=850, size=.5, role='B', name='Color B'),
         _light('AREA', 0, 70, energy=90, size=1.0, name='Top')],
         _world((.02, .02, .03), (.02, .02, .025), (.005, .005, .005), .5)),
-    'SUNRISE': ('Sunrise', 'Low orange sun skimming in from the side under a pale blue dawn sky', [
+    'SUNRISE': ('Sunrise', 'Low orange side sun under a pale blue dawn sky', [
         _light('SUN', -70, 6, energy=3.5, color=(1.0, .55, .28), size=3.0, name='Sun'),
         _light('AREA', 110, 30, energy=110, color=COOL, size=1.6, name='Sky Fill')],
         _world((.22, .32, .58), (1.0, .62, .38), (.08, .06, .05), .8)),
@@ -78,7 +78,7 @@ PRESETS = {
         _light('AREA', -50, 42, energy=1100, color=WARM, size=.25, name='Key'),
         _light('AREA', 70, 0, distance=3.0, energy=35, color=COOL, size=2.0, name='Fill')],
         _world((.005, .005, .006), (.004, .004, .005), (.002, .002, .002), .5)),
-    'HIGH_KEY': ('High-Key Product', 'Bright, even white light on a white background, like a store render', [
+    'HIGH_KEY': ('High-Key Product', 'Bright, even white light on a white background', [
         _light('AREA', 0, 80, energy=520, size=2.5, name='Top Softbox'),
         _light('AREA', -30, 18, energy=300, size=2.0, name='Front Left'),
         _light('AREA', 30, 18, energy=300, size=2.0, name='Front Right')],
@@ -86,7 +86,7 @@ PRESETS = {
 }
 
 # The skin's own lobby lights, read from the export (Apex Asset Studio 0.4+ writes them into the .aas.json).
-PRESETS['LOBBY'] = ('Apex Lobby', "The light colors and strengths the game uses for this skin in the lobby", [],
+PRESETS['LOBBY'] = ('Apex Lobby', "The skin's lobby lighting from the game", [],
                     _world((.03, .03, .035), (.025, .025, .03), (.01, .01, .01), .5))
 # where each lobby light sits (the game stores colors and strengths, not positions)
 LOBBY_LAYOUT = {'Key': (-35, 25, 2.2), 'Fill': (45, 8, 2.4), 'RimL': (140, 30, 2.4), 'RimR': (-140, 30, 2.4)}

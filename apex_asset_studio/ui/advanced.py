@@ -232,7 +232,7 @@ class AdvancedPage:
         if not more:
             self.string_table.delete(*self.string_table.get_children()); self._string_offset = 0
         if not query:
-            self.status_var.set("Type something to search for.")
+            self.status_var.set("Enter a search term.")
             return
         self._string_serial = serial = getattr(self, '_string_serial', 0) + 1
         offset = self._string_offset

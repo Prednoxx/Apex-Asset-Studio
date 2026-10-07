@@ -319,7 +319,7 @@ class Catalog:
                         _purge_container(db, cid)
                         db.execute("DELETE FROM containers WHERE id=?", (cid,))
                 if progress:
-                    progress("Resolving cosmetic names and on-demand model packages…", total, total)
+                    progress("Resolving cosmetics…", total, total)
                 rebuild_cosmetics(db)
                 if progress:
                     progress("Linking animations to models…", total, total)

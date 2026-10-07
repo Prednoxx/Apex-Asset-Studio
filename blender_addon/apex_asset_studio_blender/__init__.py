@@ -49,7 +49,7 @@ class AASSettings(PropertyGroup):
     light_intensity: FloatProperty(name="Intensity", default=1.0, min=0.0, soft_max=3.0, update=_live,
                                    description="Multiplies the power of every light in the rig")
     light_rotation: FloatProperty(name="Rotate (°)", default=0.0, min=-180.0, max=180.0, update=_live,
-                                  description="Swing the whole rig around the model, in degrees")
+                                  description="Rotate the lighting rig around the model (degrees)")
     world_strength: FloatProperty(name="Background", default=1.0, min=0.0, soft_max=3.0, update=_live,
                                   description="Brightness of the preset's sky / background")
     color_a: FloatVectorProperty(name="Color A", subtype='COLOR', size=3, min=0, max=1, default=(0.12, 0.78, 1.0), update=_live)
