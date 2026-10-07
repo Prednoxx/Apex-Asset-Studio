@@ -243,8 +243,10 @@ class LibraryPage:
         for column, title, width, stretch in (('name', 'Name', 140, True), ('quality', 'Rarity', 86, False), ('season', 'Season', 64, False),
                                               ('source', 'Source', 116, False), ('state', 'Model', 96, False)):
             self.simple_assets.heading(column, text=title, anchor='w')
-            # Wide enough for the heading plus the sort arrow at any text size.
+            # Wide enough for the heading plus the sort arrow, and for the longest fixed value, at any text size.
             needed = tkfont.Font(font=appearance.fonts(self)['strong']).measure(f'{title} ▼') + 24
+            longest = {'quality': 'Legendary', 'source': 'Anniversary Event', 'state': 'Not available'}.get(column)
+            if longest: needed = max(needed, tkfont.Font(font=appearance.fonts(self)['body']).measure(longest) + 24)
             self.simple_assets.column(column, width=max(width, needed), minwidth=60, stretch=stretch, anchor='w')
         self.simple_assets.pack(side='left', fill='both', expand=True)
         assets_scroll = ttk.Scrollbar(assets_body, orient='vertical', command=self.simple_assets.yview)
