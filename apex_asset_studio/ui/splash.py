@@ -35,10 +35,14 @@ class StartupSplash(tk.Toplevel):
         path = Path(logo_path) if logo_path else appearance.MASCOT_ART
         try:
             art = _art(path, (int(W * .48), H))
-            halo = Image.new('RGBA', art.size, gloss.rgb('#ffffff' if light else t['accent'], 0))
-            halo.putalpha(art.getchannel('A').point(lambda v: int(v * .55)))
+            # The glow gets a margin so the blur fades out instead of stopping at the artwork's bounding box.
+            pad = 60
+            mask = Image.new('L', (art.width + 2 * pad, art.height + 2 * pad), 0)
+            mask.paste(art.getchannel('A').point(lambda v: int(v * .55)), (pad, pad))
+            halo = Image.new('RGBA', mask.size, gloss.rgb('#ffffff' if light else t['accent'], 0)); halo.putalpha(mask)
             ax = W - art.width - 10; ay = H - art.height + 6
-            bg.alpha_composite(halo.filter(ImageFilter.GaussianBlur(18)), (ax, ay)); bg.alpha_composite(art, (ax, ay))
+            glow = Image.new('RGBA', bg.size, (0, 0, 0, 0)); glow.paste(halo.filter(ImageFilter.GaussianBlur(18)), (ax - pad, ay - pad))
+            bg.alpha_composite(glow); bg.alpha_composite(art, (ax, ay))
         except (OSError, ValueError):
             pass
         title_font = (f['display'][0], max(22, f['display'][1] - 6))
