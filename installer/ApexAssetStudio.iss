@@ -5,7 +5,7 @@
 #ifndef StageDir
   #define StageDir "..\build\stage\ApexAssetStudio"  ; build_windows.bat passes the real path
 #endif
-#define MyAppPublisher "Apex Asset Studio"
+#define MyAppPublisher "Prednoxx"
 #define MyAppExeName "ApexAssetStudio.exe"
 
 [Setup]

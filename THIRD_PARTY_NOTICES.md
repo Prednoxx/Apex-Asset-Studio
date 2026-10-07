@@ -1,6 +1,6 @@
 # Third-party notices
 
-Apex Asset Studio is licensed under the GNU Affero General Public License v3.0 or later. It includes or is built with the components below, under their own licenses. License texts for the bundled packages are in the `third_party_licenses` folder of the release.
+Apex Asset Studio, copyright (C) 2026 Prednoxx, is licensed under the GNU Affero General Public License v3.0 or later. It includes or is built with the components below, under their own licenses. License texts for the bundled packages are in the `third_party_licenses` folder of the release.
 
 ## Bundled software
 

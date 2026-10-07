@@ -4,7 +4,7 @@ id = "apex_asset_studio"
 version = "0.6.0"
 name = "Apex Asset Studio"
 tagline = "Import Apex Asset Studio exports with materials and lighting"
-maintainer = "Apex Asset Studio"
+maintainer = "Prednoxx"
 type = "add-on"
 
 blender_version_min = "4.2.0"

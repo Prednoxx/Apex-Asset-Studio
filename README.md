@@ -62,4 +62,4 @@ Apex Asset Studio is a fan-made tool. It is not affiliated with, endorsed or spo
 
 Mascot: Lumi-tan, sprite by [blackbunney](https://blackbunney.itch.io/free-anime-girl-character-sprite). The sprite is not covered by the software license and may not be resold on its own.
 
-Licensed under the GNU Affero General Public License v3.0 or later (`LICENSE`). Third-party components and credits: `THIRD_PARTY_NOTICES.md`.
+Copyright (C) 2026 Prednoxx. Licensed under the GNU Affero General Public License v3.0 or later (`LICENSE`). Third-party components and credits: `THIRD_PARTY_NOTICES.md`.

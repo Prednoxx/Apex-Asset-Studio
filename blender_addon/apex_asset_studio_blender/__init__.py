@@ -2,7 +2,7 @@
 and light them with one-click preset rigs."""
 bl_info = {  # used by the legacy add-on installer; Blender 4.2+ reads blender_manifest.toml instead
     "name": "Apex Asset Studio",
-    "author": "Apex Asset Studio",
+    "author": "Prednoxx",
     "version": (0, 6, 0),
     "blender": (4, 2, 0),
     "location": "File > Import, and View3D > Sidebar > AAS",
