@@ -1,4 +1,4 @@
-"""The numpy vertex decoder must match the original per-vertex decoder exactly."""
+"""Compare vectorized/reference vertex decoding."""
 import random
 import struct
 import unittest
@@ -68,7 +68,7 @@ class VertexDecoderTests(unittest.TestCase):
                                 for x, y in zip(a, b): self.assertAlmostEqual(x, y, places=12)
 
     def test_empty_mesh_without_vertex_format(self):
-        # lower LODs can hold empty meshes whose vertex flags are all zero; the reference decoder accepts them
+        # Empty LOD meshes lack flags
         g = Buffer(b'\0' * 64)
         for decoder in (decode_vertices_reference, decode_vertices):
             mesh = Mesh('m', 0)

@@ -1,7 +1,4 @@
-"""Respawn's case-insensitive, slash-normalized asset/localization hash.
-
-Format behavior cross-checked with the public RTech StringToGuid implementation.
-"""
+"""Slash-normalized case-insensitive asset hash."""
 MASK32 = (1 << 32) - 1
 MASK64 = (1 << 64) - 1
 

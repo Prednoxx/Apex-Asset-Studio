@@ -1,5 +1,4 @@
-"""Advanced page: the full asset explorer, raw string search, and diagnostics (index summary, failures and the
-log). Mixed into ApexAssetStudioApp."""
+"""Raw assets and diagnostics."""
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -18,7 +17,7 @@ class AdvancedPage:
         self.advanced_count_var = tk.StringVar(value="")
 
     def _build_advanced(self):
-        """Advanced page: every indexed asset, raw string search, and diagnostics (index summary and log)."""
+        """Raw assets and diagnostics."""
         page = ttk.Frame(self.advanced_tab, padding=(18, 14, 18, 14))
         page.pack(fill='both', expand=True)
         inner = self.advanced_tabs = ttk.Notebook(page)
@@ -182,7 +181,7 @@ class AdvancedPage:
     PAGE = 2000
 
     def search_advanced(self, more=False):
-        """Runs off the UI thread; results arrive a page at a time ("Show more" loads the next page)."""
+        """Background search, paginated results."""
         text = self.search_var.get().strip()
         chosen = self.type_filter_var.get()
         asset_type = None if chosen == "All types" else chosen

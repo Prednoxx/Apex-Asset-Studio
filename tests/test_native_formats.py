@@ -62,16 +62,16 @@ class NativeFormatTests(unittest.TestCase):
             with self.assertRaises(ValueError):StarPakIndex(path).parse()
 
     def test_patch_edits_cross_pages_without_relocating_page_indices(self):
-        # Canonical Huffman tables: commands 0..6 with depths 1,2,3,4,5,6,6.
+        # Canonical Huffman command depths
         commands=bytes((symbol<<3)|(depth-1) for symbol,depth in enumerate((1,2,3,4,5,6,6)))
         exponents=bytes((symbol<<3)|2 for symbol in range(8))
         bits=8;pos=24
         def append(value,n):
             nonlocal bits,pos
             bits |= value << pos;pos += n
-        append(1,2);append(2,3);append(0,2) # skip four metadata bytes
-        append(0,1);append(2,3);append(0,2) # copy four bytes
-        append(15,5) # command 4: replace one byte, copy three
+        append(1,2);append(2,3);append(0,2) # Skip four metadata bytes
+        append(0,1);append(2,3);append(0,2) # Copy four bytes
+        append(15,5) # Replace one, copy three
         controls=commands+exponents+bits.to_bytes(8,'little')+b'X'
         prefix=struct.pack('<ii',len(controls),2)
         archive=SimpleNamespace(header=SimpleNamespace(patch_count=1,header_size=0),

@@ -1,9 +1,4 @@
-"""Container framing for ooz. No extractor executable is involved.
-
-The framing is independently walked using the public ooz format description.
-Restart markers matter: ooz's block decoder assumes a zero-based dictionary for
-each independently compressed stream, while an RPak can concatenate many of them.
-"""
+"""Restart-aware Oodle framing."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -48,7 +43,7 @@ def frame_stream(data: bytes, raw_size: int) -> list[OodleSpan]:
             if encoded_size == 0x3FFFF:
                 if quantum >> 18 != 1:
                     raise ValueError("unsupported Oodle special quantum")
-                pos += 1  # repeated byte
+                pos += 1  # Repeated byte
             else:
                 if encoded_size + 1 > block_size:
                     raise ValueError("Oodle quantum exceeds decoded block size")
@@ -62,7 +57,7 @@ def frame_stream(data: bytes, raw_size: int) -> list[OodleSpan]:
 
 
 def decompress_stream(data: bytes, raw_size: int, runtime, stop: Event | None = None, prefix: bytes = b'') -> bytes:
-    """Decode an Oodle stream; `prefix` (e.g. the package header) is placed in front without an extra copy."""
+    """Decode stream after supplied prefix."""
     spans = frame_stream(data, raw_size)
     out = bytearray(len(prefix) + raw_size)
     out[:len(prefix)] = prefix

@@ -1,4 +1,4 @@
-"""Small helpers shared by the app's pages: names, error wording, folder helpers and sortable tables."""
+"""Shared UI helpers."""
 import os
 import re
 import subprocess
@@ -22,7 +22,7 @@ FRIENDLY_ERRORS = (
 
 
 def friendly_error(text):
-    """Plain-language summary for the status bar; the technical text still goes to the diagnostics log."""
+    """Status summary; diagnostics keep details."""
     for needle, message in FRIENDLY_ERRORS:
         if needle.lower() in text.lower(): return message
     return f'{LOG_HINT}'
@@ -45,21 +45,21 @@ def _sort_key(column, value):
 
 
 def sort_tree(tree, column, reverse=False):
-    """Sort a table by one column. Empty cells ('' or '—') always go last, whichever direction."""
+    """Sort column, empty cells last."""
     rows = [(tree.set(iid, column), iid) for iid in tree.get_children('')]
     filled = sorted([(_sort_key(column, v), iid) for v, iid in rows if v not in ('', '—')], reverse=reverse)
     blank = [(None, iid) for v, iid in rows if v in ('', '—')]
     for index, (_k, iid) in enumerate(filled + blank): tree.move(iid, '', index)
     tree._sort = (column, reverse)
     titles = getattr(tree, '_titles', None)
-    if titles is None:  # sorted before make_sortable ran: take the headings as they are, minus any arrow
+    if titles is None:  # Headings before sort callbacks
         titles = tree._titles = {col: str(tree.heading(col, 'text')).removesuffix(' ▲').removesuffix(' ▼') for col in tree['columns']}
     for col in tree['columns']:
         tree.heading(col, text=titles.get(col, col) + ((' ▼' if reverse else ' ▲') if col == column else ''))
 
 
 def make_sortable(tree):
-    """Click a column heading to sort by it; click again to reverse. Numbers, seasons and rarities sort naturally."""
+    """Toggle natural heading sort."""
     tree._sort = getattr(tree, '_sort', None)
     if getattr(tree, '_titles', None) is None: tree._titles = {col: tree.heading(col, 'text') for col in tree['columns']}
     def click(column):
@@ -88,7 +88,7 @@ def gb(size):
 
 
 def asset_lines(row):
-    """Technical metadata lines for one indexed asset."""
+    """Native metadata display lines."""
     return [
         f"Type:              {row['type']}",
         f"GUID:              {row['guid']}",
@@ -105,9 +105,7 @@ def asset_lines(row):
 
 
 class ScanEta:
-    """Time-left estimate for the library scan. Uses the pace of the last few dozen packages (skipped, unchanged
-    packages are fast, new ones slow, so a whole-run average would be wrong) and smooths the result so the text
-    doesn't jump around. Returns None until there is enough to go on."""
+    """Estimate using recent package pace."""
     WINDOW = 40
 
     def __init__(self, clock=None):

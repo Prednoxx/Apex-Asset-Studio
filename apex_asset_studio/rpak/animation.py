@@ -165,7 +165,7 @@ def decode_animation(repository,model,guid,rig_guid,blend=0):
                 rotations[frame,root_index]=quaternion_product(rotations[frame,root_index],euler_quaternion((0,0,math.radians(values[3]))))
         if not flags&4 and 0 in matched:
             root_index=matched[0]
-            # Animation origins use the authoring basis; convert -90 Z, then Z-up to model Y-up.
+            # Authoring -90Z, then Y-up
             basis=(-.5,-.5,-.5,.5)
             rotations[frame,root_index]=quaternion_product(basis,rotations[frame,root_index])
             positions[frame,root_index]=quaternion_product(quaternion_product(basis,(*positions[frame,root_index],0)),(.5,.5,.5,.5))[:3]

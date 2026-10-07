@@ -1,4 +1,4 @@
-"""On-demand asset access with a bounded, memory-mapped decoded archive cache."""
+"""Bounded decoded package cache."""
 import hashlib
 import mmap
 import os
@@ -16,17 +16,14 @@ def default_cache_dir():
     return Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'ApexAssetStudio' / 'decoded_cache'
 
 
-# Parsed package tables (pages, assets…) by decoded-cache file. The file name is a hash of the source package's
-# path, size and date, so the same name always means the same contents; parsing common.rpak's tables takes a
-# noticeable moment, so it happens once per app run instead of once per model load, preview and export.
+# Source-fingerprinted table cache
 _TABLES = {}
 
-# The app sets these from the user's Storage settings; every repository uses them unless told otherwise.
 SETTINGS = {'cache_dir': None, 'cache_budget': 12 * 1024**3}
 
 
 def cache_files(folder):
-    """Decoded-package cache entries (data files plus their provenance JSON) in a cache folder."""
+    """Decoded files and provenance."""
     folder = Path(folder)
     if not folder.is_dir(): return []
     return [p for p in folder.iterdir() if p.is_file() and (p.suffix in ('.decoded', '.tmp') or p.name.endswith('.patched.json'))]
@@ -46,7 +43,7 @@ class AssetRepository:
         self.stop_event = stop_event
         self.cache_budget = cache_budget
         self.used_cache = set()
-        self._db = None  # one catalog connection for the repository's lifetime (opening one per lookup is slow)
+        self._db = None  # Reuse lifetime catalog connection
 
     def open(self, path):
         path = Path(path).resolve()
@@ -100,7 +97,7 @@ class AssetRepository:
         if not valid_cache:
             temp = cached.with_suffix('.tmp')
             try:
-                archive.materialize_to(temp, self.stop_event)  # streamed to disk, never fully in memory
+                archive.materialize_to(temp, self.stop_event)  # Stream directly to disk
             except BaseException:
                 temp.unlink(missing_ok=True); raise
             temp.replace(cached)
@@ -136,7 +133,7 @@ class AssetRepository:
         rows = self._db.execute('''SELECT c.path,c.patch_count,a.type FROM assets a JOIN containers c ON c.id=a.container_id
             WHERE a.guid=? AND c.status='ok' ORDER BY c.patch_count,c.filename''', (guid,)).fetchall()
         paths = list(dict.fromkeys(r['path'] for r in rows))
-        # Later numbered packages are preferred only within the same declared chain.
+        # Prefer declared chain revisions only
         chains = {}
         for path in paths:
             p = Path(path)
@@ -156,7 +153,7 @@ class AssetRepository:
         if match:
             paths.remove(match); paths.insert(0, match)
         if not paths: raise ValueError(f'GUID {guid} has no resolvable base RPak payload')
-        # Prefer the caller's dependency package; otherwise refuse competing base copies.
+        # Reject ambiguous base packages
         if len(paths) > 1 and not match:
             raise ValueError(f'GUID {guid} is ambiguous across {len(paths)} base RPaks')
         archive = self.open(paths[0])
@@ -170,8 +167,7 @@ class AssetRepository:
         self.raw_opened.clear()
         for handle in reversed(self.handles): handle.close()
         self.handles.clear()
-        # Evict only our decoded cache files, after releasing mmap handles. Another
-        # running repository's Windows mapping prevents deletion and is skipped.
+        # Evict unmapped decoded files only
         files = list(self.cache.glob('*.decoded'))
         records = []
         for path in files:

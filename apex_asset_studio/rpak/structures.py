@@ -4,7 +4,7 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
-RPAK_MAGIC = 0x6B615052  # 'RPak' little-endian
+RPAK_MAGIC = 0x6B615052
 FLAG_RTECH = 1 << 8
 FLAG_OODLE = 1 << 9
 FLAG_ZSTD = 1 << 15

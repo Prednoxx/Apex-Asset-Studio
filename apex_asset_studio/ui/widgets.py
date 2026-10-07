@@ -1,12 +1,11 @@
-"""Canvas-drawn widgets that follow the active theme: the glossy header bar, section headings and the primary
-action button. Each has redraw(tokens); call refresh(app, tokens) after a theme or palette change."""
+"""Theme-aware canvas widgets."""
 import tkinter as tk
 import tkinter.font
 from PIL import ImageTk
 
 from . import appearance, gloss
 
-AVATAR = {}  # 'orb': round mascot PhotoImage for the header (None hides it), 'version': app version text
+AVATAR = {}
 
 
 def _registry(app):
@@ -31,7 +30,7 @@ def _line(font): return tk.font.Font(font=font).metrics('linespace')
 
 
 def _plate(w, h, color, state='normal', dark=True):
-    """Glossy plate in the active theme's shape (capsule, rounded or nearly square)."""
+    """Theme-shaped glossy plate."""
     m = appearance.fx()
     radius = None if m['radius'] is None else m['radius'] + 2
     return gloss.pill(w, h, color, state, radius=radius, dark=dark, shine=m['shine'])
@@ -60,7 +59,7 @@ def _bullet(size, color):
 
 
 class SectionTag(_Base):
-    """Section heading: a small glossy bullet, the label, and a hairline that fades out to the right."""
+    """Section label and separator."""
     def __init__(self, master, text, on='surface', **kwargs):
         super().__init__(master, on=on, height=22, **kwargs)
         self.text = text
@@ -81,7 +80,7 @@ class SectionTag(_Base):
 
 
 class GlossButton(_Base):
-    """The primary action button (Export). Mimics ttk's state()/instate()."""
+    """Primary button with ttk state."""
     def __init__(self, master, text, command=None, on='surface', width=210, height=40, **kwargs):
         super().__init__(master, on=on, width=width, height=height, cursor='hand2', **kwargs)
         self.text = text; self.command = command; self.base_height = height
@@ -129,17 +128,12 @@ class GlossButton(_Base):
         self._img = ImageTk.PhotoImage(_plate(w, h, color, 'normal' if self._disabled else state, dark=not t['light']), master=self)
         self.create_image(0, 0, image=self._img, anchor='nw')
         self.create_text(w / 2, h / 2, text=self.text, fill=t['faint'] if self._disabled else t['accent_text'], font=f['strong'])
-        if self.focus_get() is self and not self._disabled:  # keyboard focus ring
+        if self.focus_get() is self and not self._disabled:  # Keyboard focus ring
             self.create_rectangle(3, 3, w - 4, h - 4, outline=t['accent_text'], dash=(2, 2))
 
 
 class HeaderBar(tk.Canvas):
-    """Title bar drawn on one canvas over the theme's backdrop art: mascot orb, app name, page tabs, game status
-    and the Scan button.
-
-    The app supplies callbacks: pages() -> [(key, label, active)], on_page(key), scan() -> (label, enabled),
-    on_scan(), game() -> (ok, label), on_game().
-    """
+    """Header navigation and scan controls."""
     HEIGHT = 62
 
     def __init__(self, master, app, **callbacks):
@@ -158,7 +152,7 @@ class HeaderBar(tk.Canvas):
         sheen = gloss._vgradient((w, h // 2), (255, 255, 255, 26 if not t['light'] else 80), (255, 255, 255, 0))
         image.alpha_composite(sheen)
         self._bg = ImageTk.PhotoImage(image, master=self); self._bg_key = key
-        # Secondary header text sits on the picture: lighten/darken it until it reads on the busiest part of it.
+        # Contrast against busy backdrop
         from PIL import ImageStat
         lighter_text = appearance.luminance(t['text']) > .5
         worst = '#000000'
@@ -193,7 +187,6 @@ class HeaderBar(tk.Canvas):
             ink = t['accent_text'] if active else (t['text'] if self.hover == ('page', key) else muted)
             self.create_text(x + tw / 2, h / 2, text=label, fill=ink, font=f['nav'])
             self.hits.append(((x, y0, x + tw, y0 + ph), ('page', key))); x += tw + 6
-        # right side: scan button then game status
         label, enabled = self.cb['scan']()
         bw = _measure(f['strong'], label) + 34; bh = _line(f['strong']) + 14; bx = w - 14 - bw; by = (h - bh) / 2
         state = 'disabled' if not enabled else 'hover' if self.hover == ('scan',) else 'normal'
@@ -230,8 +223,7 @@ class HeaderBar(tk.Canvas):
 
 
 class Flow(tk.Frame):
-    """Lays its items out left to right and wraps them onto new rows when the frame gets too narrow
-    (large text sizes, small windows), instead of clipping them."""
+    """Wrap controls into available width."""
     def __init__(self, master, gap=(14, 6), on='surface'):
         super().__init__(master, borderwidth=0, highlightthickness=0)
         self.on = on; self.gap = gap; self.items = []; self._job = None; self.t = None
@@ -267,12 +259,12 @@ class Flow(tk.Frame):
 
 
 class Tooltip:
-    """Small hint shown after hovering a control for half a second."""
+    """Delayed hover hint."""
     def __init__(self, widget, text):
         self.widget = widget; self.text = text; self.job = None; self.tip = None
         widget.bind('<Enter>', self._enter, add='+'); widget.bind('<Leave>', self._hide, add='+')
         widget.bind('<ButtonPress>', self._pressed, add='+'); widget.bind('<FocusOut>', self._hide, add='+')
-        widget.bind('<FocusIn>', self._focus, add='+')  # keyboard users get the hint too
+        widget.bind('<FocusIn>', self._focus, add='+')  # Keyboard hints too
         self.clicked = 0.0
 
     def _pressed(self, _e=None):
@@ -281,7 +273,7 @@ class Tooltip:
 
     def _focus(self, _e=None):
         import time
-        if time.monotonic() - self.clicked > .4: self._enter()  # focus from Tab, not from a click
+        if time.monotonic() - self.clicked > .4: self._enter()  # Tab focus only
 
     def _enter(self, _e=None):
         self._cancel(); self.job = self.widget.after(500, self._show)

@@ -1,9 +1,4 @@
-"""Materials & textures inspector for the loaded model.
-
-Lists every material the model uses with its game name and whether it was fully understood, and under each one
-its textures: role (base color, normal, gloss…), the shader slot it feeds, size, pixel format, which channels are
-used, and anything unresolved. Picking a material highlights it in the 3D preview (everything else is dimmed);
-picking a texture shows it. Answers "why does this look wrong in Blender" without digging through files."""
+"""Material and texture inspection."""
 import queue
 import tempfile
 import threading
@@ -33,7 +28,7 @@ def _channels(entry):
 
 
 def close_material_inspector(app):
-    """Close the inspector (a different model was loaded, so its contents no longer apply)."""
+    """Close stale model inspector."""
     window = getattr(app, '_inspector', None)
     if window is not None and window.winfo_exists():
         window._close()

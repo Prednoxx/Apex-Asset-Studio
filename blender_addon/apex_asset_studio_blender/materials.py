@@ -1,10 +1,9 @@
-"""Builds Blender materials from the material descriptions in an Apex Asset Studio manifest."""
+"""Build decoded Blender materials."""
 import json
 
 import bpy
 
-# One shared node group feeds every Apex material, so the Material controls in the AAS panel change all of them at
-# once: normal strength, specular, roughness, emission, skin scattering, and a hue / saturation / brightness grade.
+# Shared global material controls
 CONTROLS = (('Normal Strength', 1.0), ('Specular', 1.0), ('Roughness', 1.0), ('Emission', 1.0), ('Skin', 1.0),
             ('Hue', 0.5), ('Saturation', 1.0), ('Brightness', 1.0))
 CONTROLS_GROUP = 'AAS Controls'
@@ -204,7 +203,7 @@ def build_material(desc, base):
         image=next((n for n in tree.nodes if n.type=='TEX_IMAGE' and n.get('aas_role')=='basecolor'),None)
         if image is None: raise FileNotFoundError(textures['basecolor']['path'])
         alpha=nodes.new('ShaderNodeMath');alpha.operation='MULTIPLY';alpha.inputs[1].default_value=opacity;alpha.location=(350,-400)
-        # Alpha is independent of RGB in the source packed image.
+        # Alpha independent of packed RGB
         socket=group.interface.new_socket(name='Base Alpha',in_out='INPUT',socket_type='NodeSocketFloat');socket.default_value=1.
         links.new(inputs.outputs['Base Alpha'],alpha.inputs[0]);links.new(alpha.outputs[0],mix.inputs[0])
         tree.links.new(image.outputs['Alpha'],shader.inputs['Base Alpha'])

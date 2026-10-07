@@ -1,9 +1,9 @@
 #define MyAppName "Apex Asset Studio"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.0.0"  ; build_windows.bat passes the real version
+  #define MyAppVersion "0.0.0"  ; set by build
 #endif
 #ifndef StageDir
-  #define StageDir "..\build\stage\ApexAssetStudio"  ; build_windows.bat passes the real path
+  #define StageDir "..\build\stage\ApexAssetStudio"  ; set by build
 #endif
 #define MyAppPublisher "Prednoxx"
 #define MyAppExeName "ApexAssetStudio.exe"
@@ -37,7 +37,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch Apex Asset Studio"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-; Caches are rebuilt on demand, so remove them; the library index and settings stay unless the user deletes them.
+; Remove caches only
 Type: filesandordirs; Name: "{localappdata}\ApexAssetStudio\decoded_cache"
 Type: filesandordirs; Name: "{localappdata}\ApexAssetStudio\preview_textures_v2"
 Type: filesandordirs; Name: "{localappdata}\ApexAssetStudio\preview_textures"

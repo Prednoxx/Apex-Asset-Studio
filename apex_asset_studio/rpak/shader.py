@@ -1,4 +1,4 @@
-"""Bounded DXBC reflection reads, used for actual material slot names."""
+"""Bounded DXBC reflection."""
 import struct
 import re
 import sys
@@ -43,7 +43,7 @@ def material_bindings(repository, shader_guid):
     pixel_guid = struct.unpack_from('<Q',archive.data,h+pixel_offsets[asset.version])[0]
     sa, sh = repository.asset(f'{pixel_guid:016X}')
     sr = PageReader(sa)
-    # A shader CPU table starts with a relocated bytecode pointer and byte length.
+    # Relocated pointer followed by length
     cpu = sr.resolve(sh.data, 12)
     length = struct.unpack_from('<i',sa.data,cpu+8)[0]
     if length <= 0: raise ValueError('first shader bytecode variant unavailable')
@@ -71,7 +71,7 @@ def material_bindings(repository, shader_guid):
 
 
 def parse_dxc_resources(text):
-    """Read actual reflected bindings, including register spaces; no filename heuristics."""
+    """Reflected bindings and register spaces."""
     section = text.split('; Resource Bindings:',1)
     if len(section)!=2: raise ValueError('DXIL resource reflection unavailable')
     section=section[1].split('; ViewId state:',1)[0]

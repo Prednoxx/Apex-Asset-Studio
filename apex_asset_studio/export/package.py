@@ -1,4 +1,4 @@
-"""Consumer export bundle with explicit provenance and unresolved-data reporting."""
+"""Exports with source provenance."""
 import json
 from pathlib import Path
 import struct
@@ -71,7 +71,7 @@ def export_package(model, catalog, game_root, destination, display_name, cosmeti
         writers = {'.glb': write_gltf, '.gltf': write_gltf, '.cast': write_cast}
         for extension in formats:
             writers[extension](model,materials,directory/(stem+extension),lod,animation if lod==min(model.lods) else None)
-        if debug_data:  # raw packed normals, for decoder verification only
+        if debug_data:  # Decoder verification data only
             raw_normals = [v for mesh in model.lods[lod] for v in mesh.packed_normals]
             (directory/(stem+'.packed_normals.bin')).write_bytes(struct.pack(f'<{len(raw_normals)}I',*raw_normals))
         files.append({'lod':lod,**{f[1:]: stem+f for f in formats},

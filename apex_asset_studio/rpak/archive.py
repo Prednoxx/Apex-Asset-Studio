@@ -52,7 +52,7 @@ class RpakArchive:
         if not header.compressed:
             if len(raw) < header.dcmp_size:
                 raise ValueError('truncated uncompressed RPak')
-            # Retail files can append signatures outside the declared RPak extent.
+            # Signatures outside declared extent
             data = raw[:header.dcmp_size]
         elif header.flags & FLAG_RTECH:
             data = decompress_rtech_payload(raw, header.header_size, header.cmp_size, header.dcmp_size)
@@ -62,7 +62,7 @@ class RpakArchive:
                 raise RuntimeError(f"RPak uses Oodle but no compatible decoder is available: {runtime.description}")
             if header.cmp_size < header.header_size or header.cmp_size > len(raw):
                 raise ValueError("invalid compressed RPak extent")
-            # A view instead of a copy of the compressed part, and the header written straight into the output.
+            # Zero-copy compressed input view
             compressed = memoryview(raw)[header.header_size:header.cmp_size]
             data = decompress_stream(compressed, header.dcmp_size - header.header_size, runtime, stop_event,
                                      prefix=raw[:header.header_size])
@@ -74,7 +74,7 @@ class RpakArchive:
         if len(data) != header.dcmp_size:
             raise ValueError(f"RPak decoded size mismatch: {len(data)} != {header.dcmp_size}")
         self.data = data
-        self.raw = None  # Do not retain both giant buffers throughout indexing.
+        self.raw = None
         self.layout = compute_layout(data, header)
         self.segments = parse_segments(data, header, self.layout)
         self.pages = parse_pages(data, header, self.layout)
@@ -82,8 +82,7 @@ class RpakArchive:
         return data
 
     def materialize_to(self, destination, stop_event: Event | None = None) -> RpakHeader:
-        """Decompress the package straight into a file, a piece at a time. Unlike materialize() this never holds
-        the whole package in memory (common.rpak is ~1.5 GB decompressed), so it is lighter and faster."""
+        """Stream decompressed package to disk."""
         header = self.read_header()
         if not header.compressed or header.flags & FLAG_RTECH or not header.flags & FLAG_OODLE:
             data = self.materialize(stop_event)
@@ -133,8 +132,6 @@ class RpakArchive:
 
     @staticmethod
     def mine_asset_strings(data: bytes, limit: int = 20000) -> list[str]:
-        # Mine likely Respawn asset paths/names. This is deliberately conservative so the
-        # advanced browser remains readable while the typed asset parsers are being validated.
         pattern = re.compile(rb"[A-Za-z0-9_./\\()\-]{8,260}\x00")
         prefixes = (
             b"mdl/", b"model/", b"material/", b"texture/", b"settings/", b"ui/",

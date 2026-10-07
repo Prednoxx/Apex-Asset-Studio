@@ -1,4 +1,4 @@
-"""glTF 2.0 writer; native geometry and all skin influences, without converter tools."""
+"""Native glTF 2.0 export."""
 import json
 import struct
 from pathlib import Path
@@ -74,8 +74,7 @@ def write_gltf(model, materials, path, lod=0, animation=None):
                 weights.append(tuple([w for b,w in part] + [0]*(4-len(part))))
             attr[f'JOINTS_{group}'] = accessor(joints,'H',5123,'VEC4',4,34962)
             attr[f'WEIGHTS_{group}'] = accessor(weights,'f',5126,'VEC4',4,34962)
-        # Native VG triangles are clockwise; glTF defines counter-clockwise fronts.
-        # Preserve decoded normals and vertices, and convert the index order only.
+        # CW indices to CCW fronts
         indices = [index for i in range(0, len(mesh.indices), 3)
                    for index in (mesh.indices[i], mesh.indices[i+2], mesh.indices[i+1])]
         inds = accessor(indices,'H',5123,'SCALAR',1,34963)

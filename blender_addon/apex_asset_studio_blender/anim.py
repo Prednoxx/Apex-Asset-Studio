@@ -1,18 +1,11 @@
-"""Animations & Poses: everything animation-related for an imported Apex model in one panel.
-
-Animations: every action that drives this model's skeleton (imported game animations, or your own), listed with
-their length. Clicking one makes it the active animation and fits the scene's frame range to it.
-Poses: one-frame actions marked as poses. Save the current pose (any frame of any animation, or your own posing)
-under a name, apply it with a click, or go back to the bind pose. Poses are ordinary actions, so they're saved in
-the .blend and work with the NLA editor."""
+"""Skeleton actions and poses."""
 import bpy
 
 POSE_PREFIX = 'AAS Pose · '
 
 
 def target_rig(context):
-    """The armature to work on: the active/selected armature, the armature of a selected mesh, or the most
-    recently imported Apex armature."""
+    """Selected or last imported armature."""
     candidates = [context.active_object] + list(context.selected_objects)
     for obj in candidates:
         if obj is None: continue
@@ -25,7 +18,7 @@ def target_rig(context):
 
 
 def fcurves(action):
-    """F-curves of an action, for both the classic and the layered (slotted) action data."""
+    """Classic and slotted action curves."""
     curves = list(getattr(action, 'fcurves', []) or [])
     if curves: return curves
     for layer in getattr(action, 'layers', []) or []:
@@ -49,7 +42,7 @@ def driven_bones(action):
 
 
 def compatible(action, rig):
-    """True if the action animates this skeleton (most of the bones it drives exist on the rig)."""
+    """Check driven bones against skeleton."""
     if rig is None: return False
     if rig.get('aas_model_guid') and action.get('aas_model_guid') == rig.get('aas_model_guid'): return True
     bones = driven_bones(action)
@@ -74,7 +67,7 @@ def assign(rig, action):
 
 
 def play_action(context, rig, action):
-    """Make `action` the rig's animation and fit the frame range to it."""
+    """Apply action and frame range."""
     assign(rig, action)
     start, end = frames(action)
     scene = context.scene
@@ -91,7 +84,7 @@ def bind_pose(rig):
 
 
 def save_pose(context, rig, name):
-    """Store the rig's current pose as a one-frame pose action and make it active."""
+    """Store current pose as action."""
     context.view_layer.update()
     values = {}
     for bone in rig.pose.bones:

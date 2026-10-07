@@ -1,4 +1,4 @@
-"""Native PC v10 mip extraction; original payloads plus DDS and lossless PNG."""
+"""Native v10 texture extraction."""
 import hashlib
 import json
 import struct
@@ -17,7 +17,7 @@ FORMAT_NAMES = {0: 'BC1', 1: 'BC1 sRGB', 2: 'BC2', 3: 'BC2 sRGB', 4: 'BC3', 5: '
 
 
 def texture_info(archive, asset):
-    """Size, pixel format and mip count from a texture's header, without decoding any pixels."""
+    """Header metadata without pixel decoding."""
     if asset.type_name != 'txtr' or asset.version != 10:
         raise ValueError(f'texture version {asset.version} unsupported')
     start = PageReader(archive).header(asset)
@@ -92,7 +92,7 @@ def extract_texture(archive, asset, directory, stem, preview_size=None):
         if len(blob) != expected: raise ValueError('texture mip decoded size mismatch')
         mips[spec['level']] = blob
     directory = Path(directory); directory.mkdir(parents=True,exist_ok=True)
-    # DDS is a new standards-compliant wrapper around unchanged original GPU mip bytes.
+    # DDS wraps unchanged mip bytes
     flags = 0x1|0x2|0x4|0x1000|(0x8 if fmt in (31,32) else 0x80000)
     if total > 1: flags |= 0x20000
     caps = 0x1000 | (0x400008 if total > 1 else 0)
@@ -105,15 +105,14 @@ def extract_texture(archive, asset, directory, stem, preview_size=None):
     png = directory/f'{stem}.png'
     if fmt in (31,32): image = Image.frombytes('RGBA',(width,height),mips[level])
     elif fmt in (2,3,7,9,10,11):
-        # Signed BC4/5 and HDR require different conversion policies; preserve DDS.
+        # Preserve unsupported formats as DDS
         image = None
     else:
         function = {0:dec.decode_bc1,1:dec.decode_bc1,
                     4:dec.decode_bc3,5:dec.decode_bc3,6:dec.decode_bc4,8:dec.decode_bc5,
                     12:dec.decode_bc7,13:dec.decode_bc7}[fmt]
         image = Image.frombytes('RGBA',(width,height),function(mips[level],width,height),'raw','BGRA')
-    # Preview PNGs are a private cache: fastest compression (encoding was most of the preview time). Exported PNGs
-    # use a moderate level: the same pixels, a little bigger, much quicker to write than the default.
+    # Preview encoding prioritizes speed
     if image: image.save(png, compress_level=1 if preview_size else EXPORT_PNG_LEVEL)
     if not preview_size:
         source_dir = directory/'original'; source_dir.mkdir(exist_ok=True)

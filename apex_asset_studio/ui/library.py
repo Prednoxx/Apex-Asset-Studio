@@ -1,5 +1,4 @@
-"""Library page: the category sidebar, the item list, the 3D preview with model/LOD pickers, animation playback
-and export. Mixed into ApexAssetStudioApp."""
+"""Browsing, preview and export."""
 from __future__ import annotations
 
 import json
@@ -66,7 +65,7 @@ class LibraryPage:
             self.status_var.set(getattr(self, '_status_before_hint', ''))
 
     def _swap_selection_tags(self, _event=None):
-        # Row tags (rarity colors) override the selection foreground; lift them off the selected row.
+        # Selection overrides rarity text
         tree = self.simple_assets
         for iid, tags in list(self._held_tags.items()):
             if tree.exists(iid) and iid not in tree.selection(): tree.item(iid, tags=tags)
@@ -99,7 +98,7 @@ class LibraryPage:
 
     def _apply_sort(self, remember=True):
         column, reverse = self.SORTS.get(self.sort_var.get(), ('name', False))
-        if self.session.get('sort_column') and not remember:  # a heading click from earlier wins until the dropdown is used
+        if self.session.get('sort_column') and not remember:  # Heading sort overrides dropdown
             column, reverse = self.session['sort_column'], self.session.get('sort_reverse', False)
         if remember: self.session['sort'] = self.sort_var.get(); self.session.pop('sort_column', None)
         if column in self.simple_assets['columns']: sort_tree(self.simple_assets, column, reverse)
@@ -133,7 +132,7 @@ class LibraryPage:
         return Path(str(clip.get('name') or 'Animation')).stem.replace('_', ' ').strip().title()
 
     def _update_badge(self):
-        """Name, length and play state of the current animation, shown in the corner of the 3D view."""
+        """Current animation viewport label."""
         if not hasattr(self, 'preview'): return
         clip = self._animation
         text = ''
@@ -145,7 +144,7 @@ class LibraryPage:
         self._refresh_export_controls()
 
     def _refresh_export_controls(self):
-        """Export button label and which options apply, for 'Model' or 'Animation only'."""
+        """Apply model/animation export controls."""
         if not hasattr(self, 'export_btn'): return
         animation_only = self.export_kind.get() == 'animation'
         batch = 0 if animation_only else self._batch_size()
@@ -159,11 +158,11 @@ class LibraryPage:
         self.include_animation_check.state(['!disabled'] if idle and not animation_only and self._animation is not None else ['disabled'])
         self.animation_export_btn.state(['!disabled'] if self._animation is not None and idle else ['disabled'])
 
-    # Columns hidden first when the list is too narrow to show them all (Name and Rarity always stay).
-    OPTIONAL_COLUMNS = ('source', 'season', 'state')  # availability ('Model') stays the longest
+    # Hide optional columns first
+    OPTIONAL_COLUMNS = ('source', 'season', 'state')  # Model availability stays longest
 
     def _fit_list_columns(self, event=None):
-        """Show as many columns as fit the list's width, so none are cut off. Hidden ones still sort."""
+        """Hide columns exceeding available width."""
         tree = self.simple_assets
         available = tree.winfo_width()
         if available <= 1: return
@@ -187,7 +186,6 @@ class LibraryPage:
         detail = ttk.Frame(pane, style='Panel.TFrame', padding=(18, 16, 18, 16))
         self.workspace_panels = nav, center, detail
 
-        # Sidebar: categories and owners with right-aligned counts
         self._section(nav, 'Library', on='background').pack(fill='x', padx=(10, 6), pady=(0, 10))
         nav_body = ttk.Frame(nav)
         nav_body.pack(fill='both', expand=True)
@@ -200,7 +198,6 @@ class LibraryPage:
         self.simple_tree.configure(yscrollcommand=nav_scroll.set)
         self.simple_tree.bind('<<TreeviewSelect>>', self._simple_section_selected)
 
-        # Item list
         header = ttk.Frame(center, style='Panel.TFrame')
         header.pack(fill='x', padx=(0, 8))
         ttk.Label(header, textvariable=self.simple_header_var, style='Title.Panel.TLabel').pack(side='left')
@@ -211,7 +208,7 @@ class LibraryPage:
         entry.pack(fill='x')
         entry.bind('<Return>', lambda _e: self._search_simple())
         entry.bind('<Escape>', lambda _e: self.simple_search_var.set(''))
-        entry.bind('<Down>', lambda _e: (self._focus_list(), 'break')[-1])  # arrow down from the search into the results
+        entry.bind('<Down>', lambda _e: (self._focus_list(), 'break')[-1])
         self._placeholder(entry, self.simple_search_var, 'Search this list')
         self.simple_search_var.trace_add('write', lambda *_: self._debounce_search())
         filters = widgets.Flow(center, gap=(12, 6)); filters.pack(fill='x', pady=(0, 8), padx=(0, 8))
@@ -238,12 +235,11 @@ class LibraryPage:
         assets_body = ttk.Frame(center, style='Panel.TFrame')
         assets_body.pack(fill='both', expand=True)
         cols = ('name', 'quality', 'season', 'source', 'state')
-        # extended: Ctrl/Shift-click several skins to export them together; the clicked one is previewed
         self.simple_assets = ttk.Treeview(assets_body, columns=cols, show='headings', selectmode='extended')
         for column, title, width, stretch in (('name', 'Name', 140, True), ('quality', 'Rarity', 86, False), ('season', 'Season', 64, False),
                                               ('source', 'Source', 116, False), ('state', 'Model', 96, False)):
             self.simple_assets.heading(column, text=title, anchor='w')
-            # Wide enough for the heading plus the sort arrow, and for the longest fixed value, at any text size.
+            # Fit values and sort arrow
             needed = tkfont.Font(font=appearance.fonts(self)['strong']).measure(f'{title} ▼') + 24
             longest = {'quality': 'Legendary', 'source': 'Anniversary Event', 'state': 'Not available'}.get(column)
             if longest: needed = max(needed, tkfont.Font(font=appearance.fonts(self)['body']).measure(longest) + 24)
@@ -256,11 +252,10 @@ class LibraryPage:
         self.simple_assets.on_sort = self._remember_column_sort
         self.simple_assets.bind('<<TreeviewSelect>>', self._swap_selection_tags)
         self.simple_assets.bind('<<TreeviewSelect>>', self._simple_asset_selected, add='+')
-        self.simple_assets.bind('<Control-a>', self._select_all_listed)  # select every listed skin (batch export)
+        self.simple_assets.bind('<Control-a>', self._select_all_listed)
         self.simple_assets.bind('<<TreeviewSelect>>', lambda _e: self._refresh_export_controls(), add='+')
         self._held_tags = {}
 
-        # Inspector
         head = ttk.Frame(detail, style='Panel.TFrame')
         titles = ttk.Frame(head, style='Panel.TFrame')
         titles.pack(side='left', fill='x', expand=True)
@@ -276,7 +271,7 @@ class LibraryPage:
         self.preview.pack(fill='both', expand=True)
         self.preview.bind('<Enter>', lambda _e: self._viewport_hint(True), add='+')
         self.preview.bind('<Leave>', lambda _e: self._viewport_hint(False), add='+')
-        # Keyboard focus on the 3D view: a visible ring, and the key help in the status bar.
+        # Viewport keyboard focus feedback
         self.preview.bind('<FocusIn>', lambda _e: (viewport.configure(style='Focus.TFrame'), self._viewport_hint(True, keys=True)), add='+')
         self.preview.bind('<FocusOut>', lambda _e: (viewport.configure(style='Hairline.TFrame'), self._viewport_hint(False, keys=True)), add='+')
 
@@ -355,7 +350,7 @@ class LibraryPage:
         hints = {'.glb': 'Binary glTF (single file)',
                  '.gltf': 'glTF with separate files',
                  '.cast': 'CAST (inches)'}
-        formats = ttk.Frame(options, style='Panel.TFrame')  # the format checkboxes wrap as one group
+        formats = ttk.Frame(options, style='Panel.TFrame')
         options.add(formats)
         ttk.Label(formats, text='Formats', style='Muted.Panel.TLabel').pack(side='left', padx=(0, 8))
         self.format_vars = {}; self._model_export_options = [self.all_lods_check]
@@ -432,7 +427,6 @@ class LibraryPage:
         spec = self._simple_sections.get(iid)
         if not spec or self._scanning or self._busy:
             return
-        # Selecting the section that is already shown (e.g. the selection event right after startup) is free.
         key = (iid, self.simple_search_var.get().strip(), self.search_all_var.get(), self.rarity_filter_var.get(),
                self.hide_unavailable_var.get(), self.season_filter_var.get())
         if not force and key == getattr(self, '_shown_section', None): return
@@ -491,7 +485,7 @@ class LibraryPage:
             return
         focus = self.simple_assets.focus()
         item = focus if focus in sel else sel[-1]
-        if item == getattr(self, '_previewed_iid', None) and len(sel) > 1: return  # extending a multi-selection
+        if item == getattr(self, '_previewed_iid', None) and len(sel) > 1: return  # Keep preview during multi-selection
         self._previewed_iid = item; sel = (item,)
         self._selection_serial += 1
         self._model = None
@@ -567,8 +561,7 @@ class LibraryPage:
         self._start_model_load(choice['guid'],preferred,details.get('skin_family'))
 
     def _start_model_load(self,guid,preferred=None,family=None,full=False,keep_view=False):
-        """Load a model in the background. Picking another item cancels this load; the list stays usable.
-        Only the most detailed LOD is decoded for preview unless `full` (other LODs load when selected)."""
+        """Cancelable background model load."""
         if self._busy or self._scanning: return
         if getattr(self, '_load_stop', None): self._load_stop.set()
         stop = self._load_stop = threading.Event()
@@ -611,7 +604,7 @@ class LibraryPage:
     def _render_model(self):
         if not self._model: return
         lod = int(self.lod_var.get().split()[-1])
-        if lod not in self._model.lods:  # first-LOD preview: decode the rest now, then show the chosen level
+        if lod not in self._model.lods:  # Decode requested LOD on demand
             if self._model.partial and getattr(self, '_model_source', None):
                 self._wanted_lod = lod
                 self._start_model_load(*self._model_source, full=True, keep_view=True)
@@ -739,7 +732,7 @@ class LibraryPage:
         if self._playing: self._play_timer=self.after(max(1,int(1000/clip['fps'])),self._tick_animation)
 
     def _export(self):
-        """The Export button: model or animation, depending on the choice in the Export section."""
+        """Export selected model or animation."""
         if self.export_kind.get() == 'animation': self._export_animation()
         elif self._batch_size(): self._export_batch()
         else: self._export_model()
@@ -749,8 +742,7 @@ class LibraryPage:
         return f'{cosmetic["owner_name"]} - {cosmetic["name"]} - {self.model_choice_var.get()}' if cosmetic else Path(self._model.name).stem
 
     def _export_animation(self):
-        """Animation only: '<skin> - <animation>' folder in the export folder, holding a GLB (skeleton + motion)
-        and the .aas.json the Blender add-on imports."""
+        """Export animation GLB and manifest."""
         if self._animation is None or not self._model or self._busy or self._scanning: return
         self.export_kind.set('animation'); self._refresh_export_controls()
         title = self._clip_title(self._animation)

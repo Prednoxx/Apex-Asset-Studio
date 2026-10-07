@@ -1,4 +1,4 @@
-"""Bounded reads of unrelocated RPak pages and registered GUID references."""
+"""Bounded RPak page reads."""
 from __future__ import annotations
 import struct
 from .structures import PagePtr
@@ -35,7 +35,7 @@ class PageReader:
     def string(self, pos: int | None, limit: int = 4096, utf16: bool = False) -> str | None:
         if pos is None:
             return None
-        # A terminated string may not cross its owning page.
+        # Strings stay within owning page
         import bisect
         page_index = bisect.bisect_right(self.offsets, pos) - 1
         if page_index < 0:

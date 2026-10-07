@@ -54,7 +54,6 @@ def find_apex_installations() -> list[Path]:
     for lib in _steam_libraries():
         candidates.append(lib / "steamapps" / "common" / "Apex Legends")
 
-    # EA app / Origin common defaults and user-selected drives.
     for drive in "CDEFGHIJ":
         candidates.extend([
             Path(f"{drive}:/Program Files/EA Games/Apex"),

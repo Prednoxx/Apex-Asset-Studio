@@ -1,4 +1,4 @@
-"""Material dependencies and reflection evidence. Unknown channels stay unknown."""
+"""Reflected material dependencies."""
 import re
 import math
 import struct
@@ -77,7 +77,7 @@ def decode_material(repository, guid, preferred=None, texture_directory=None):
                 desc['constant_buffer']['path']='textures/'+Path(texture_directory).name+'/original/Material Constants.bin'
     except (ValueError,struct.error,OSError) as exc:
         desc['warnings'].append(f'Material constants unresolved: {exc}');desc['status']='partial'
-    # These roles are attached to shader resource names, never texture filenames.
+    # Roles from shader bindings
     known = {'colormap':'basecolor','basecolormap':'basecolor','albedomap':'basecolor',
              'normalmap':'normal','emissivemap':'emission','emissionmap':'emission',
              'specularmap':'specular','glossmap':'gloss','opacitymap':'alpha','aomap':'ao'}

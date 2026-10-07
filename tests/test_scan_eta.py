@@ -1,4 +1,4 @@
-"""The scan time-left estimate follows the recent pace and words it simply."""
+"""Scan estimate and sorting."""
 import unittest
 
 from apex_asset_studio.ui.common import ScanEta
@@ -9,7 +9,7 @@ class ScanEtaTests(unittest.TestCase):
         now = [0.0]
         eta = ScanEta(clock=lambda: now[0])
         result = None
-        for i in range(1, 101):  # 2 seconds per package, 1000 packages
+        for i in range(1, 101):
             now[0] = i * 2.0
             result = eta.update(i, 1000)
         self.assertAlmostEqual(result, 900 * 2.0, delta=60)
@@ -31,7 +31,7 @@ if __name__ == '__main__':
 
 
 class SortBeforeSortableTest(unittest.TestCase):
-    """The library can be sorted while the window is still being built (real libraries load during startup)."""
+    """Sort before heading callbacks exist."""
     def test_sort_tree_without_make_sortable(self):
         try:
             import tkinter as tk

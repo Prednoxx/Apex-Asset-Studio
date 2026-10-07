@@ -1,4 +1,4 @@
-"""Every theme must stay readable, render its backdrop art, and load older settings files safely."""
+"""Theme contrast and compatibility."""
 import unittest
 
 from apex_asset_studio.ui import appearance, gloss
@@ -26,7 +26,7 @@ class ThemeTests(unittest.TestCase):
             with self.subTest(theme=name):
                 image = gloss.backdrop(spec['fx']['backdrop'], (160, 90), t)
                 self.assertEqual((image.size, image.mode), ((160, 90), 'RGBA'))
-                self.assertEqual(image.getchannel('A').getextrema(), (255, 255))  # fully opaque
+                self.assertEqual(image.getchannel('A').getextrema(), (255, 255))
 
     def test_old_settings_fall_back(self):
         old = appearance.normalize({'version': 5, 'preset': 'Neon Cybercore', 'base': 'Neon Cybercore', 'text_scale': 1.3})
@@ -36,7 +36,7 @@ class ThemeTests(unittest.TestCase):
         self.assertEqual(kept['preset'], 'Aero Day')
 
     def test_text_contrast_meets_wcag(self):
-        """Every theme, normal and high contrast: body/secondary text, rarity colors, warnings and button labels."""
+        """Normal/high-contrast text meets WCAG."""
         saved = dict(appearance.ACTIVE)
         try:
             for hc in (False, True):

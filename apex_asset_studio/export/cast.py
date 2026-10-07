@@ -1,4 +1,4 @@
-"""Independent CAST v1 serializer. See dtzxporter/cast format specification."""
+"""CAST v1 serialization."""
 import struct
 from pathlib import Path
 

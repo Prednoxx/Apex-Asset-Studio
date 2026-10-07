@@ -1,7 +1,4 @@
-"""Create the installable Blender add-on ZIP from source, excluding bytecode.
-
-The files sit at the root of the ZIP next to blender_manifest.toml, which is the Blender 4.2+ extension layout:
-install it with Edit > Preferences > Get Extensions > (menu) Install from Disk, or drag it into Blender."""
+"""Package Blender extension ZIP."""
 from pathlib import Path
 from zipfile import ZipFile, ZIP_DEFLATED
 

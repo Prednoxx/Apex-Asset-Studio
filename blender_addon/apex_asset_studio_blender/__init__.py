@@ -1,6 +1,5 @@
-"""Apex Asset Studio for Blender: import Apex Asset Studio exports (.aas.json) with their materials and animations,
-and light them with one-click preset rigs."""
-bl_info = {  # used by the legacy add-on installer; Blender 4.2+ reads blender_manifest.toml instead
+"""Apex Asset Studio addon."""
+bl_info = {  # Legacy addon installer metadata
     "name": "Apex Asset Studio",
     "author": "Prednoxx",
     "version": (0, 6, 0),
@@ -92,7 +91,7 @@ def _apply_preset(context, preset):
 
 
 class AAS_OT_Import(Operator):
-    """Import an Apex Asset Studio export with materials, or an animation onto the selected model"""
+    """Import model or compatible animation"""
     bl_idname = "aas.import_asset"
     bl_label = "Import Apex Asset"
     bl_options = {"REGISTER", "UNDO"}
@@ -132,7 +131,7 @@ class AAS_OT_Import(Operator):
 
 
 class AAS_OT_Rebuild(Operator):
-    """Rebuild all materials from the export file"""
+    """Rebuild exported materials"""
     bl_idname = "aas.rebuild_materials"
     bl_label = "Rebuild Materials"
     bl_options = {"REGISTER", "UNDO"}
@@ -152,7 +151,7 @@ class AAS_OT_Rebuild(Operator):
 
 
 class AAS_OT_SwapSkin(Operator):
-    """Apply another skin of the same model (recolor) from its .aas.json"""
+    """Apply compatible skin materials"""
     bl_idname = "aas.swap_skin"
     bl_label = "Swap Skin (Recolor)…"
     bl_options = {"REGISTER", "UNDO"}
@@ -174,7 +173,7 @@ class AAS_OT_SwapSkin(Operator):
 
 
 class AAS_OT_ResetControls(Operator):
-    """Reset all material controls"""
+    """Reset material controls"""
     bl_idname = "aas.reset_material_controls"
     bl_label = "Reset"
     bl_options = {"REGISTER", "UNDO"}
@@ -187,7 +186,7 @@ class AAS_OT_ResetControls(Operator):
 
 
 class AAS_OT_ApplyLighting(Operator):
-    """Add the selected lighting preset (replaces existing AAS lighting)"""
+    """Replace AAS lighting preset"""
     bl_idname = "aas.apply_lighting"
     bl_label = "Apply Lighting"
     bl_options = {"REGISTER", "UNDO"}
@@ -209,7 +208,7 @@ class AAS_OT_ApplyLighting(Operator):
 
 
 class AAS_OT_ClearLighting(Operator):
-    """Remove AAS lights, floor and camera; restore the previous world"""
+    """Remove lighting; restore previous world"""
     bl_idname = "aas.clear_lighting"
     bl_label = "Remove Lighting"
     bl_options = {"REGISTER", "UNDO"}
@@ -221,7 +220,7 @@ class AAS_OT_ClearLighting(Operator):
 
 
 class AAS_OT_LookThrough(Operator):
-    """Switch 3D viewports to Rendered shading"""
+    """Enable rendered viewport shading"""
     bl_idname = "aas.view_lighting"
     bl_label = "Preview Lighting"
 
@@ -234,7 +233,7 @@ class AAS_OT_LookThrough(Operator):
 
 
 class AAS_OT_SceneReady(Operator):
-    """Set up lighting, camera and render settings"""
+    """Set lighting, camera and rendering"""
     bl_idname = "aas.scene_ready"
     bl_label = "Scene Ready"
     bl_options = {"REGISTER", "UNDO"}
@@ -249,7 +248,7 @@ class AAS_OT_SceneReady(Operator):
 
 
 class AAS_OT_FrameCamera(Operator):
-    """Re-aim the AAS camera at the model"""
+    """Frame model with AAS camera"""
     bl_idname = "aas.frame_camera"
     bl_label = "Reframe Camera"
     bl_options = {"REGISTER", "UNDO"}
@@ -260,7 +259,7 @@ class AAS_OT_FrameCamera(Operator):
 
 
 class AAS_OT_Turntable(Operator):
-    """Rotate the model 360° over the set length; output MP4 next to the export"""
+    """Create full model rotation"""
     bl_idname = "aas.turntable"
     bl_label = "Make Turntable"
     bl_options = {"REGISTER", "UNDO"}
@@ -278,7 +277,7 @@ class AAS_OT_Turntable(Operator):
 
 
 class AAS_OT_RenderTurntable(Operator):
-    """Render the turntable to video"""
+    """Render turntable video"""
     bl_idname = "aas.render_turntable"
     bl_label = "Render Turntable"
 
@@ -290,7 +289,7 @@ class AAS_OT_RenderTurntable(Operator):
 
 
 class AAS_OT_RemoveTurntable(Operator):
-    """Remove the turntable rotation"""
+    """Remove turntable rotation"""
     bl_idname = "aas.remove_turntable"
     bl_label = "Remove Turntable"
     bl_options = {"REGISTER", "UNDO"}
@@ -301,7 +300,7 @@ class AAS_OT_RemoveTurntable(Operator):
 
 
 class AAS_UL_actions(bpy.types.UIList):
-    """Animations and saved poses for the current skeleton"""
+    """Compatible actions and saved poses"""
     def filter_items(self, context, data, propname):
         actions = getattr(data, propname)
         rig = anim.target_rig(context)
@@ -322,7 +321,7 @@ class AAS_UL_actions(bpy.types.UIList):
 
 
 class AAS_OT_PlayToggle(Operator):
-    """Play or pause the animation (Space)"""
+    """Play or pause animation"""
     bl_idname = "aas.play_toggle"
     bl_label = "Play / Pause"
 
@@ -332,7 +331,7 @@ class AAS_OT_PlayToggle(Operator):
 
 
 class AAS_OT_BindPose(Operator):
-    """Clear the animation and return to the bind pose"""
+    """Restore skeleton bind pose"""
     bl_idname = "aas.bind_pose"
     bl_label = "Bind Pose"
     bl_options = {"REGISTER", "UNDO"}
@@ -348,7 +347,7 @@ class AAS_OT_BindPose(Operator):
 
 
 class AAS_OT_SavePose(Operator):
-    """Save the current pose to the pose list"""
+    """Save current pose"""
     bl_idname = "aas.save_pose"
     bl_label = "Save Pose"
     bl_options = {"REGISTER", "UNDO"}
@@ -371,7 +370,7 @@ class AAS_OT_SavePose(Operator):
 
 
 class AAS_OT_DeletePose(Operator):
-    """Delete the selected saved pose"""
+    """Delete selected saved pose"""
     bl_idname = "aas.delete_pose"
     bl_label = "Delete Pose"
     bl_options = {"REGISTER", "UNDO"}

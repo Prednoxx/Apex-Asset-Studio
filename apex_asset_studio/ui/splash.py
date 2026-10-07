@@ -1,5 +1,4 @@
-"""Startup splash: the theme's backdrop art, the mascot, and one frosted glass card with the app name, the current
-step and a progress bar. Nothing else."""
+"""Startup stages and progress."""
 import time
 import tkinter as tk
 import tkinter.font
@@ -8,7 +7,7 @@ from PIL import Image, ImageFilter, ImageTk
 
 from . import appearance, gloss
 
-STAGES = 5  # number of stage() calls made during startup
+STAGES = 5
 
 
 def _art(path, size):
@@ -35,7 +34,7 @@ class StartupSplash(tk.Toplevel):
         path = Path(logo_path) if logo_path else appearance.MASCOT_ART
         try:
             art = _art(path, (int(W * .48), H))
-            # The glow gets a margin so the blur fades out instead of stopping at the artwork's bounding box.
+            # Margin prevents clipped glow
             pad = 60
             mask = Image.new('L', (art.width + 2 * pad, art.height + 2 * pad), 0)
             mask.paste(art.getchannel('A').point(lambda v: int(v * .55)), (pad, pad))
@@ -79,7 +78,7 @@ class StartupSplash(tk.Toplevel):
 
     def finish(self, app):
         self.stage('Ready')
-        delay = max(0, int((0.35-(time.monotonic()-self.started))*1000))  # just long enough to read 'Ready'
+        delay = max(0, int((0.35-(time.monotonic()-self.started))*1000))
         def reveal():
             if self._closed: return
             self._closed = True; self.destroy(); app.deiconify(); app.lift()

@@ -1,5 +1,4 @@
-"""Apex Asset Studio main window: the header, status bar and page switching, the library scan, the background
-event pump and session state. The pages live in library.py, advanced.py and settings.py (as mixins)."""
+"""Main window and session."""
 from __future__ import annotations
 
 import json
@@ -72,7 +71,7 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, AdvancedPage, Se
         if splash: splash.stage('Loading library…')
         for tree in (self.simple_assets, self.asset_table, self.string_table): make_sortable(tree)
         self.refresh_all_views()
-        if not self.catalog.index_outdated:  # one-time additions for libraries scanned by older versions
+        if not self.catalog.index_outdated:  # Migrate older library indexes
             threading.Thread(target=self.catalog.ensure_animation_links, daemon=True).start()
             def release_info():
                 try:
@@ -85,7 +84,6 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, AdvancedPage, Se
         else: self.deiconify()
         self._report_previous_run(); self._set_activity('idle')
 
-    # ------------------------------------------------------------------ shell
     PAGES = ('Library', 'Advanced', 'Settings')
 
     def _build_ui(self):
@@ -141,7 +139,7 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, AdvancedPage, Se
         self.tabs.select(tab)
 
     def _placeholder(self, entry, variable, text):
-        """Muted hint text inside an empty entry."""
+        """Muted empty-entry hint."""
         hint = ttk.Label(entry, text=text, style='Placeholder.TLabel', cursor='xterm')
         def refresh(*_):
             if variable.get() or self.focus_get() is entry: hint.place_forget()
@@ -174,7 +172,6 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, AdvancedPage, Se
         self.bind_all('<space>', space)
         self.bind_all('<Key-r>', lambda _e: None if self._typing() else self.preview.reset_view())
 
-    # ------------------------------------------------------------------ library scan
     def _auto_detect(self):
         if self._scanning:
             return
@@ -264,7 +261,7 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, AdvancedPage, Se
                     left = ScanEta.describe(self._scan_eta.update(cur, total)) if getattr(self, '_scan_eta', None) else ''
                     self.status_var.set(f'{msg}   ·   {left}' if left else msg)
                     self.progress_var.set((cur / max(total, 1)) * 100)
-                    # Keep diagnostics readable: log actual work and sparse skip milestones.
+                    # Log sparse skip milestones
                     if not msg.startswith("Up to date:") or cur % 250 == 0:
                         self._log(f"[{cur}/{total}] {msg}")
                 elif event[0] == "done":
@@ -333,8 +330,7 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, AdvancedPage, Se
                     if self._model:
                         lod = int(self.lod_var.get().split()[-1])
                         if lod not in self._model.lods:
-                            # the extra detail levels failed: stay on what is decoded and stop offering the rest,
-                            # so picking the LOD again can't start the same failing load in a loop
+                            # Disable failed LOD retries
                             self._wanted_lod = None
                             self._model.partial = False
                             self._model.lod_levels = sorted(self._model.lods)
@@ -397,7 +393,7 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, AdvancedPage, Se
                     self._log(f'Export manifest: {path}')
         except queue.Empty:
             pass
-        except Exception as exc:  # never let one bad event stop the event pump
+        except Exception as exc:  # Keep event pump running
             import traceback
             self._log(''.join(traceback.format_exception(exc)))
             self.status_var.set(friendly_error(f'{type(exc).__name__}: {exc}'))
@@ -433,10 +429,9 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, AdvancedPage, Se
     def _default_export_folder():
         if getattr(sys, 'frozen', False): return Path(sys.executable).parent / 'Exports'
         source = Path(__file__).resolve().parents[2]
-        master = source.parent / 'Exports'  # "Apex Studio Master\\Exports" when running from the master folder
+        master = source.parent / 'Exports'  # Master-folder exports
         return master if master.is_dir() else source / 'Exports'
 
-    # ------------------------------------------------------------------ session
     def _load_session(self):
         try:
             value = json.loads(self.session_path.read_text(encoding='utf-8'))
@@ -472,7 +467,7 @@ class ApexAssetStudioApp(Reliability, LibraryPage, BatchExport, AdvancedPage, Se
 
 def main():
     if os.name == 'nt':
-        # Own taskbar identity, so Windows shows the app's icon instead of grouping it under python.exe.
+        # Separate Windows taskbar identity
         try:
             import ctypes
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('ApexAssetStudio.Desktop')
@@ -481,13 +476,13 @@ def main():
     try:
         app = ApexAssetStudioApp()
     except Exception:
-        # The window never appeared. Without this, a windowed EXE would just silently not open.
+        # Report windowed startup failures
         _startup_failed(traceback.format_exc()); raise
     app.mainloop()
 
 
 def _startup_failed(details):
-    """Write the error where the user can find it and say so in a message box."""
+    """Log and show startup failure."""
     folder = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".apex_asset_studio")) / "ApexAssetStudio" / "logs"
     log = folder / 'startup-error.txt'
     try:

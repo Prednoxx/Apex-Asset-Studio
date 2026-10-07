@@ -28,10 +28,8 @@ void main() {
 }
 '''
 
-# Lighting is camera-relative (the key light stays upper-left as you orbit): wrapped diffuse key light, a sky/ground
-# hemisphere ambient tinted by the theme, a soft rim light and a small specular highlight. Output is linear; the
-# sRGB framebuffer encodes it. pass 0 draws opaque texels (alpha >= 0.5) with depth writes, pass 1 blends the soft
-# edges of hair and glass (alpha < 0.5) on top without writing depth.
+# Camera-relative linear lighting
+# Opaque depth, then translucent edges
 FRAGMENT_SHADER = '''
 #version 120
 uniform sampler2D tex;
@@ -80,8 +78,7 @@ class ModelPreview(OpenGLFrame):
         self.pan=np.zeros(2,dtype=np.float32)
         self._background='#16191d'; self._pending=None
         self._textures={}; self._new_textures={}; self._texture_key=None
-        # Backdrop art: painter(width, height, message) -> PIL RGBA image, drawn behind the model as one texture.
-        # Empty-state messages ('Select an item…') are painted into it, so they sit on the art without a box.
+        # Backdrop includes empty-state text
         self._painter=None; self.message=''; self.badge=''; self._bg_key=None; self._bg_texture=None; self._bg_timer=None
         self._program=None; self._shader_failed=False; self._highlight=None
         self._light=dict(sky=(.55,.6,.68), ground=(.12,.11,.1), rim=(.5,.55,.65), shadow=.45)
@@ -125,7 +122,7 @@ class ModelPreview(OpenGLFrame):
                 self._program=shaders.compileProgram(shaders.compileShader(VERTEX_SHADER,GL.GL_VERTEX_SHADER),
                                                      shaders.compileShader(FRAGMENT_SHADER,GL.GL_FRAGMENT_SHADER),validate=False)
                 self._uniforms={n:GL.glGetUniformLocation(self._program,n) for n in ('tex','textured','pass','base_color','sky','ground','rim_color','dim')}
-            except Exception as exc:  # very old drivers: keep the fixed-function path
+            except Exception as exc:  # Legacy fixed-function driver fallback
                 self._shader_failed=True; self.shader_error=str(exc)
         self.schedule()
 
@@ -133,17 +130,17 @@ class ModelPreview(OpenGLFrame):
         self._background=background; self.schedule()
 
     def set_lighting(self, sky, ground, rim, light_theme):
-        """Theme-tinted ambient light (hex colors) and how dark the ground shadow is."""
+        """Theme ambient and shadow strength."""
         self._light=dict(sky=tuple(_linear(self._rgb(sky))), ground=tuple(_linear(self._rgb(ground))),
                          rim=tuple(_linear(self._rgb(rim))), shadow=.38 if light_theme else .6)
         self.schedule()
 
     def set_badge(self, text):
-        """Small caption in the corner of the view (the playing animation)."""
+        """Set viewport animation label."""
         if text!=self.badge: self.badge=text; self._bg_key=None; self.schedule()
 
     def set_highlight(self, material):
-        """Show one material normally and dim the rest (None shows everything)."""
+        """Highlight material, dim others."""
         if material!=self._highlight: self._highlight=material; self.schedule()
 
     def set_backdrop(self, painter):
@@ -188,7 +185,7 @@ class ModelPreview(OpenGLFrame):
         for i,bone in enumerate(model.bones): self.inverse_bind[i,:3]=np.asarray(bone.inverse_bind).reshape(3,4)
         self.center=(self.vertices.min(axis=0)+self.vertices.max(axis=0))/2
         self.span=max(float(np.ptp(self.vertices,axis=0).max()),.001)
-        lo,hi=self.vertices.min(axis=0),self.vertices.max(axis=0)  # ground shadow: under the feet, sized to the footprint
+        lo,hi=self.vertices.min(axis=0),self.vertices.max(axis=0)
         self.floor=(float(lo[1]),float((lo[0]+hi[0])/2),float((lo[2]+hi[2])/2),max(float(hi[0]-lo[0])*.9,float(hi[2]-lo[2])*.9,self.span*.38))
         self.zoom=1.; self._message(''); self.schedule()
 
@@ -238,7 +235,7 @@ class ModelPreview(OpenGLFrame):
     def _down(self,event): self.focus_set(); self._drag=(event.x,event.y,self.yaw,self.pitch)
 
     def _key(self,event):
-        """Keyboard control while the view has focus: arrows rotate, Shift+arrows pan, + / - zoom."""
+        """Keyboard orbit, pan and zoom."""
         key=event.keysym; shift=bool(event.state&1)
         if not self.has_geometry: return None
         steps={'Left':(-1,0),'Right':(1,0),'Up':(0,-1),'Down':(0,1)}
@@ -275,8 +272,7 @@ class ModelPreview(OpenGLFrame):
     def _rgb(self, color): return [v/65535 for v in self.winfo_rgb(color)]
 
     def _refresh_backdrop(self, w, h):
-        """Repaint the backdrop texture when the size, message or theme changes. While the view is being resized
-        the old texture is stretched and the repaint waits until resizing pauses."""
+        """Debounced viewport background repaint."""
         key=(w,h,self.message,self.badge,self._painter)
         if self._painter is None or key==self._bg_key: return
         if self._bg_texture is not None and self._bg_key and self._bg_key[2:]==key[2:] and self._bg_timer is None:
@@ -359,7 +355,7 @@ class ModelPreview(OpenGLFrame):
                 GL.glEnable(GL.GL_BLEND); GL.glBlendFunc(GL.GL_SRC_ALPHA,GL.GL_ONE_MINUS_SRC_ALPHA); GL.glDepthMask(GL.GL_FALSE)
             for material,start,count,has_uv in self.draw_ranges:
                 textured=material in self._textures and has_uv
-                if render_pass and not textured: continue  # untextured meshes are fully opaque
+                if render_pass and not textured: continue  # Untextured meshes remain opaque
                 GL.glUniform1i(u['textured'],int(textured))
                 GL.glUniform1f(u['dim'],.93 if self._highlight is not None and material!=self._highlight else 0.)
                 if textured: GL.glBindTexture(GL.GL_TEXTURE_2D,self._textures[material])
@@ -368,7 +364,7 @@ class ModelPreview(OpenGLFrame):
         GL.glUseProgram(0)
 
     def _draw_fixed(self):
-        """Fallback for drivers without GLSL: the original fixed-function lighting."""
+        """Legacy fixed-function lighting fallback."""
         for material,start,count,has_uv in self.draw_ranges:
             dimmed=self._highlight is not None and material!=self._highlight
             GL.glMaterialfv(GL.GL_FRONT_AND_BACK,GL.GL_AMBIENT_AND_DIFFUSE,(.2,.2,.22,1) if dimmed else (.72,.77,.82,1))
@@ -380,13 +376,13 @@ class ModelPreview(OpenGLFrame):
         GL.glDisable(GL.GL_TEXTURE_2D);GL.glDisable(GL.GL_ALPHA_TEST)
 
     def _draw_shadow(self):
-        """Soft contact shadow: a disc on the ground plane that fades out from the middle of the footprint."""
+        """Soft model-footprint contact shadow."""
         floor=getattr(self,'floor',None)
         if not floor: return
         y,cx,cz,radius=floor; strength=self._light['shadow']
         GL.glDisable(GL.GL_LIGHTING); GL.glDisable(GL.GL_TEXTURE_2D)
         GL.glEnable(GL.GL_BLEND); GL.glBlendFunc(GL.GL_SRC_ALPHA,GL.GL_ONE_MINUS_SRC_ALPHA); GL.glDepthMask(GL.GL_FALSE)
-        for ring in range(6):  # concentric fans give a smooth falloff
+        for ring in range(6):  # Concentric fans soften shadow
             inner,outer=ring/6,(ring+1)/6
             a0,a1=strength*(1-inner)**2,strength*(1-outer)**2
             GL.glBegin(GL.GL_TRIANGLE_STRIP)

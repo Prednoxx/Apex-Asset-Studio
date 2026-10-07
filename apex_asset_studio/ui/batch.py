@@ -1,8 +1,4 @@
-"""Exporting many skins in one go, and the export-folder layout shared with single exports.
-
-Exports are grouped by Legend or weapon: <export folder>/<Wraith>/<Wraith - Airship Assassin - Full body>/.
-A batch exports each skin's main model (full body for Legends, world model for weapons) with the current export
-options, skips skins that were already exported, and reports what happened at the end. Mixed into the app."""
+"""Batch export and folders."""
 import json
 import threading
 from pathlib import Path
@@ -16,27 +12,25 @@ from ..rpak.model import decode_model
 from ..rpak.oodle_stream import ScanCancelled
 from .common import LOG_HINT
 
-MAIN_MODEL = ('bodyModel', 'worldModel', 'viewModel', 'armsModel')  # preference order for "full body only"
+MAIN_MODEL = ('bodyModel', 'worldModel', 'viewModel', 'armsModel')  # Preferred main-model fields
 
 
 class BatchExport:
-    # ---------------------------------------------------------------- shared with single exports
     def _export_folder_for(self, cosmetic):
         root = Path(self.export_path_var.get())
         return root / safe_name(cosmetic['owner_name']) if cosmetic else root
 
     def _cosmetic_for_export(self, cosmetic):
-        """The cosmetic row as written into the manifest, plus the skin's lobby lighting for the Blender add-on."""
+        """Cosmetic metadata with lobby lighting."""
         if not cosmetic: return None
         cosmetic = dict(cosmetic)
         try:
             cosmetic['lobby_lighting'] = lobby_lighting(self.catalog.settings_values(cosmetic['skin_guid']),
                                                         self.catalog.settings_values(cosmetic['owner_guid']))
-        except Exception:  # lighting is a bonus; never block an export on it
+        except Exception:  # Optional lighting must not block
             cosmetic['lobby_lighting'] = None
         return cosmetic
 
-    # ---------------------------------------------------------------- selection
     def _selected_cosmetic_ids(self):
         return [int(iid.split(':')[1]) for iid in self.simple_assets.selection() if iid.startswith('cosmetic:')]
 
@@ -47,9 +41,8 @@ class BatchExport:
         ids = self._selected_cosmetic_ids()
         return len(ids) if len(ids) > 1 else 0
 
-    # ---------------------------------------------------------------- jobs
     def _batch_job(self, row):
-        """What to export for one skin, or a reason it can't be."""
+        """Resolve skin export or failure."""
         cosmetic = dict(row)
         models = json.loads(cosmetic['details']).get('models', [])
         available = [m for m in models if m.get('pak_name')]
@@ -63,7 +56,7 @@ class BatchExport:
                     family=json.loads(cosmetic['details']).get('skin_family'), cosmetic=cosmetic)
 
     def _export_list(self):
-        """'Export whole list': every skin currently listed (after search and filters)."""
+        """Export current filtered list."""
         ids = self._listed_cosmetic_ids()
         if not ids:
             self.status_var.set('No skins to export.'); return

@@ -1,4 +1,4 @@
-"""Recognize a bounded subset of shader arithmetic; unknown expressions stay unknown."""
+"""Recognized shader arithmetic only."""
 import re
 import struct
 import math
@@ -116,12 +116,12 @@ def derivative_normal_contract(text, resource_id):
 
 
 def convert_derivative_normal(source, destination, contract):
-    """Make an explicitly derived Blender RGB map, preserving the original XY PNG."""
+    """Derived RGB; preserve original XY."""
     from PIL import Image
     import numpy as np
-    # 256x256 lookup (R, G) -> RGB, then one table lookup per pixel with numpy instead of a Python loop.
+    # Vectorized 256x256 RGB lookup
     steps=np.arange(256,dtype=np.float64)/255
-    x=np.repeat(steps*contract['x_scale']+contract['x_bias'],256)  # r major, g minor (index r*256+g)
+    x=np.repeat(steps*contract['x_scale']+contract['x_bias'],256)  # Index = r*256 + g
     y=np.tile(steps*contract['y_scale']+contract['y_bias'],256)
     length=np.sqrt(x*x+y*y+1)
     lookup=np.round((np.stack((x,y,np.ones_like(x)),axis=1)/length[:,None]*.5+.5)*255).astype(np.uint8)

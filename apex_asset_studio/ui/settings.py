@@ -1,5 +1,4 @@
-"""Settings page: game folder, theme cards, accessibility, mascot, layout, custom colors and storage.
-Also applies the appearance to the whole window. Mixed into ApexAssetStudioApp."""
+"""Appearance and storage settings."""
 import re
 import shutil
 import threading
@@ -57,7 +56,7 @@ class SettingsPage:
                              takefocus=1)
             card.grid(row=index // 4, column=index % 4, padx=(0, 14), pady=(0, 14), sticky='w')
             card.bind('<Button-1>', lambda _e, n=name: self._choose_theme(n))
-            for key in ('<Return>', '<KP_Enter>', '<space>'):  # Tab to a card, Enter or Space to use it
+            for key in ('<Return>', '<KP_Enter>', '<space>'):
                 card.bind(key, lambda _e, n=name: (self._choose_theme(n), 'break')[-1])
             self.preset_cards[name] = card
         self.custom_theme_label = ttk.Label(body, text='', style='Muted.TLabel')
@@ -141,13 +140,13 @@ class SettingsPage:
     CARD = (264, 156)
 
     def _draw_cards_if_visible(self):
-        """The theme cards are only drawn while Settings is open (they're the slowest thing to paint)."""
+        """Paint cards only when visible."""
         if getattr(self, '_cards_dirty', True) and hasattr(self, 'tabs') and self.tabs.select() == str(self.settings_tab):
             self._cards_dirty = False; self._draw_preset_cards()
 
     def _draw_card_text(self, card, name, spec, p, f, t, chosen, W, H):
         card.delete('all')
-        # highlightcolor is the keyboard-focus ring: the app's text color, so it stands out from the chosen ring
+        # High-contrast keyboard focus ring
         card.configure(background=p['background'], highlightbackground=t['accent'] if chosen else t['border'],
                        highlightcolor=t['text'])
         card.create_image(0, 0, image=self._card_images[name], anchor='nw')
@@ -155,17 +154,16 @@ class SettingsPage:
         card.create_text(W - 20 - 38, H - 29, text='In use' if chosen else 'Use', fill=p['accent_text'], font=f['small'])
 
     def _draw_preset_cards(self):
-        """Each card is a miniature of its theme: its backdrop art, a glass panel, its fonts and button shape."""
+        """Render cached theme miniatures."""
         t = self.tokens; active = appearance.ACTIVE['style']; W, H = self.CARD
         self._card_images = {}
         for name, card in self.preset_cards.items():
             spec = appearance.STYLES[name]; chosen = name == self.appearance['preset']
-            appearance.ACTIVE['style'] = name  # tokens() and fx() read the active theme
+            appearance.ACTIVE['style'] = name  # Set active theme before rendering
             try:
                 card_colors = appearance.effective_colors(dict(self.appearance, preset=name, base=name, colors=spec['colors']))
                 p = appearance.tokens(card_colors); f = appearance.fonts(self, name); m = appearance.fx()
-                # A card's picture only depends on its theme's colors and effects, so it is painted once and reused
-                # (switching themes then only re-colors the rings and labels).
+                # Reuse theme card images
                 cache = self.__dict__.setdefault('_card_cache', {})
                 cache_key = (name, tuple(sorted((k, v) for k, v in p.items() if isinstance(v, str))), tuple(sorted(m.items())))
                 if cache_key in cache:
@@ -187,8 +185,7 @@ class SettingsPage:
         self.custom_theme_label.configure(text=f"Custom colors based on {self.appearance['base']}" if custom else '')
 
     def _viewport_painter(self, w, h, message, badge=''):
-        """Backdrop art for the 3D viewport, with any empty-state message on a small glass card and the playing
-        animation's name in the corner."""
+        """Viewport backdrop and status labels."""
         t = self.tokens; scale = appearance.ACTIVE['scale']
         image = gloss.backdrop(appearance.fx()['backdrop'], (w, h), t, base=t['viewport'], energy=.6)
         if message:
@@ -224,8 +221,7 @@ class SettingsPage:
         self._sync_color_controls(); self._apply_appearance()
 
     def _fit_window(self):
-        """Minimum window size grows with the text size (capped to the screen), and a window that is now too
-        small is enlarged, so larger text never clips controls off the edge."""
+        """Fit scaled controls within screen."""
         scale = appearance.ACTIVE.get('scale', 1.0)
         width = min(int(1040 * scale), self.winfo_screenwidth() - 40)
         height = min(int(660 * scale), self.winfo_screenheight() - 80)
@@ -249,8 +245,7 @@ class SettingsPage:
             center.grid(row=0, column=1, sticky='nsew', padx=(0, 1))
             detail.grid(row=0, column=2, sticky='nsew')
             for i, weight in enumerate((2, 4, 6)): pane.columnconfigure(i, weight=weight)
-            # The list and the preview share the width 4:6 whatever the list's columns ask for, so a wide list
-            # never squeezes the preview and export controls.
+            # Preserve list/preview width ratio
             for i in (1, 2): pane.columnconfigure(i, uniform='work')
             pane.columnconfigure(0, minsize=int(220 * scale)); pane.columnconfigure(1, minsize=int(340 * scale))
             pane.rowconfigure(0, weight=1)
@@ -294,7 +289,7 @@ class SettingsPage:
         self._sync_color_controls(); self._apply_appearance()
 
     def _scale_columns(self):
-        """Grow fixed-width table columns with the text size so values never clip."""
+        """Scale columns with text size."""
         scale = self.appearance.get('text_scale', 1.0)
         if not hasattr(self, '_column_widths'):
             self._column_widths = {}
@@ -319,9 +314,9 @@ class SettingsPage:
         self.status_var.set(f'Text size: {appearance.TEXT_SCALES[index][0]}')
 
     def _load_mascot(self):
-        """Mascot portrait (Settings), header avatar and window icon."""
+        """Mascot portrait, avatar and icon."""
         try:
-            if getattr(self, '_mascot_cache', None) is None:  # decode the pictures once, not on every theme change
+            if getattr(self, '_mascot_cache', None) is None:  # Reuse decoded mascot images
                 with Image.open(appearance.MASCOT_ART) as picture: art = picture.convert('RGBA')
                 with Image.open(appearance.MASCOT_AVATAR) as picture: avatar = picture.convert('RGBA')
                 portrait = art.copy(); portrait.thumbnail((180, 240), Image.Resampling.LANCZOS)
@@ -333,14 +328,14 @@ class SettingsPage:
             widgets.AVATAR['orb'] = self._orb_image
             widgets.AVATAR['version'] = APP_VERSION
             self._refresh_header()
-            # The window icon (several sizes) isn't needed to show the new theme, so make it right after.
+            # Defer multi-size window icon
             if getattr(self, '_icon_job', None): self.after_cancel(self._icon_job)
             self._icon_job = self.after(150, lambda i=avatar: self._set_window_icon(i))
         except (OSError, ValueError) as exc:
             self._file_log(f'Mascot artwork could not be loaded: {exc}')
 
     def _set_window_icon(self, avatar):
-        """Title-bar and taskbar icon: the same round glass avatar as the header, at every size Windows asks for."""
+        """Multi-size title/taskbar icon."""
         key = self.tokens['accent']
         if getattr(self, '_icon_key', None) == key: return
         self._icon_key = key
@@ -349,7 +344,6 @@ class SettingsPage:
         self._icon_image = self._icon_images[2]
         self.iconphoto(True, *self._icon_images)
 
-    # ---- storage ---------------------------------------------------------------------------------
     def _cache_dir(self):
         return Path(self.session.get('cache_dir') or default_cache_dir())
 

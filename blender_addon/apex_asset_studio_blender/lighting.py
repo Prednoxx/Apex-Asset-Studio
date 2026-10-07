@@ -1,11 +1,4 @@
-"""Preset light rigs for imported Apex models.
-
-A rig is a set of lights placed on a sphere around the model (azimuth 0 = in front of the character, which faces
--Y after glTF import; positive azimuth = the character's left), a matching world background, and optionally a
-shadow-catcher floor and a framed camera. Every light is parented to one empty ("AAS Light Target") at the model's
-chest height and aims at it, so rotating that empty swings the whole rig around the model. Light power is
-scaled with distance so a rig looks the same on a 2 m Legend and a 40 cm weapon.
-"""
+"""Model-scaled preset light rigs."""
 import math
 
 import bpy
@@ -14,8 +7,7 @@ from mathutils import Vector
 COLLECTION = 'AAS Lighting'
 TARGET = 'AAS Light Target'
 
-# Overall calibration against Blender's default AgX view transform (exposure 0): the preset numbers below are
-# relative strengths; these bring a mid-grey surface to a mid-grey result under the key light.
+# AgX zero-exposure calibration
 AREA_EXPOSURE = .17
 SUN_EXPOSURE = .35
 
@@ -25,7 +17,7 @@ WHITE = (1.0, 1.0, 1.0)
 
 
 def _light(kind, azimuth, elevation, distance=2.4, energy=500, color=WHITE, size=1.0, role='', name=''):
-    """distance and size are multiples of the model's height; energy is Watts for a 2 m model (Sun: W/m²)."""
+    """Model-relative distances; 2m watt calibration."""
     return dict(kind=kind, azimuth=azimuth, elevation=elevation, distance=distance, energy=energy, color=color,
                 size=size, role=role, name=name)
 
@@ -34,7 +26,7 @@ def _world(zenith, horizon, ground, strength=1.0):
     return dict(zenith=zenith, horizon=horizon, ground=ground, strength=strength)
 
 
-# name, description, lights, world
+# Name, description, lights, world
 PRESETS = {
     'STUDIO': ('3-Point Studio', 'Classic key, fill and back light on a neutral grey studio', [
         _light('AREA', -35, 30, energy=650, color=WARM, size=.6, name='Key'),
@@ -85,12 +77,12 @@ PRESETS = {
         _world((1.0, 1.0, 1.0), (1.0, 1.0, 1.0), (.9, .9, .9), .7)),
 }
 
-# The skin's own lobby lights, read from the export (Apex Asset Studio 0.4+ writes them into the .aas.json).
+# Decoded cosmetic lobby lighting
 PRESETS['LOBBY'] = ('Apex Lobby', "The skin's lobby lighting from the game", [],
                     _world((.03, .03, .035), (.025, .025, .03), (.01, .01, .01), .5))
-# where each lobby light sits (the game stores colors and strengths, not positions)
+# Placement inferred; colors decoded
 LOBBY_LAYOUT = {'Key': (-35, 25, 2.2), 'Fill': (45, 8, 2.4), 'RimL': (140, 30, 2.4), 'RimR': (-140, 30, 2.4)}
-LOBBY_POWER = 330  # Watts per unit of the game's brightness, for a 2 m model
+LOBBY_POWER = 330  # Watts/brightness for 2m model
 
 PRESET_ITEMS = [(key, name, description) for key, (name, description, _l, _w) in PRESETS.items()]
 
@@ -100,7 +92,7 @@ def preset_name(key):
 
 
 def lobby_lights(context):
-    """Light specs for the 'Apex Lobby' preset from the imported export's lobby lighting."""
+    """Decoded lobby light specifications."""
     import json
     from pathlib import Path
     path = Path(context.scene.aas_settings.manifest_path or '')
@@ -124,10 +116,8 @@ def lobby_lights(context):
     return specs
 
 
-# ---------------------------------------------------------------------------------------------- model bounds
 def model_objects(context):
-    """Meshes to light: the selection if it contains meshes (or an armature's meshes), otherwise the last imported
-    Apex model, otherwise every visible mesh."""
+    """Selected/imported/visible meshes to light."""
     selected = [o for o in context.selected_objects if o.type in ('MESH', 'ARMATURE')]
     meshes = [o for o in selected if o.type == 'MESH']
     rigs = {o for o in selected if o.type == 'ARMATURE'}
@@ -150,7 +140,6 @@ def bounds(objects):
     return center, size, low.z
 
 
-# ---------------------------------------------------------------------------------------------- rig
 def _collection(context):
     collection = bpy.data.collections.get(COLLECTION)
     if collection is None:
@@ -164,7 +153,7 @@ def clear(context, restore_world=True):
     collection = bpy.data.collections.get(COLLECTION)
     if collection:
         for obj in list(collection.objects):
-            if not obj.get('aas_rig'): continue  # the turntable and the Scene-ready camera stay
+            if not obj.get('aas_rig'): continue  # Preserve turntable and scene camera
             data = obj.data
             bpy.data.objects.remove(obj, do_unlink=True)
             if data is not None and data.users == 0:
@@ -215,7 +204,7 @@ def _set_world(context, name, spec, strength):
 
 
 def apply(context, preset, settings):
-    """Build the rig for `preset` around the model. Returns (number of lights, model height)."""
+    """Build model-scaled lighting rig."""
     name, _description, lights, world = PRESETS[preset]
     if preset == 'LOBBY': lights = lobby_lights(context)
     objects = model_objects(context)
@@ -227,7 +216,7 @@ def apply(context, preset, settings):
     target.location = center; target.rotation_euler.z = math.radians(settings.light_rotation)
     target['aas_preset'] = preset; target['aas_size'] = size; target['aas_rig'] = True
     collection.objects.link(target)
-    scale = (size / 2.0) ** 2 * AREA_EXPOSURE  # distances scale with the model, so power scales with its size²
+    scale = (size / 2.0) ** 2 * AREA_EXPOSURE  # Power follows squared model scale
     for spec in lights:
         data = bpy.data.lights.new(f"AAS {spec['name']}", spec['kind'])
         color = spec['color']
@@ -268,16 +257,15 @@ def _floor(collection, center, size, floor):
     mesh.from_pydata([(-half, -half, 0), (half, -half, 0), (half, half, 0), (-half, half, 0)], [], [(0, 1, 2, 3)])
     obj = bpy.data.objects.new('AAS Floor', mesh); obj['aas_rig'] = True
     obj.location = (center.x, center.y, floor)
-    obj.is_shadow_catcher = True  # Cycles keeps only the shadows; the plane itself stays invisible in renders
+    obj.is_shadow_catcher = True  # Invisible Cycles shadow catcher
     collection.objects.link(obj)
 
 
 def _camera(context, collection, center, size):
-    if bpy.data.objects.get('AAS Camera'): return  # keep the Scene-ready camera
+    if bpy.data.objects.get('AAS Camera'): return  # Preserve scene-ready camera
     data = bpy.data.cameras.new('AAS Camera'); data.lens = 50
     camera = bpy.data.objects.new('AAS Camera', data); camera['aas_rig'] = True
     collection.objects.link(camera)
-    # front, slightly above, far enough that the whole model fits a 50 mm frame with some margin
     distance = size * 2.6
     camera.location = center + Vector((0, -distance, size * .15))
     aim = camera.constraints.new('TRACK_TO'); aim.target = bpy.data.objects.get(TARGET)
@@ -285,9 +273,8 @@ def _camera(context, collection, center, size):
     context.scene.camera = camera
 
 
-# ---------------------------------------------------------------------------------------------- live tweaks
 def update_live(context, settings):
-    """Apply the intensity, rotation, world strength and dual colors to an existing rig without rebuilding it."""
+    """Update lighting without rebuilding rig."""
     collection = bpy.data.collections.get(COLLECTION)
     if not collection: return
     for obj in collection.objects:

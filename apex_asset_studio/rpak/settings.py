@@ -1,4 +1,4 @@
-"""Typed STGS/STLT and LOCL decoding. Unknown schemas fail visibly."""
+"""Typed STGS/STLT and LOCL."""
 from __future__ import annotations
 import struct
 from dataclasses import dataclass

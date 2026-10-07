@@ -1,10 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-rem The finished app goes straight into the master folder (the folder above Source):
-rem   ApexAssetStudio.exe + _internal\ (the EXE needs it beside it).
-rem Everything PyInstaller makes along the way stays in build\ and is deleted at the end,
-rem so no other folder is left with an EXE in it.
+rem Output: master folder
 for %%m in ("%~dp0..") do set "MASTER=%%~fm"
 set "STAGE=%CD%\build\stage"
 set "WORK=%CD%\build\work"
@@ -27,8 +24,7 @@ if not errorlevel 1 (
   goto :fail
 )
 
-rem The command line below is the single source of build settings (no .spec file is kept).
-rem --noupx: UPX-packed executables are often flagged by antivirus and start slower.
+rem Build settings (no UPX)
 .venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --windowed --noupx --name ApexAssetStudio ^
   --specpath "%WORK%" --distpath "%STAGE%" --workpath "%WORK%" ^
   --hidden-import ooz --hidden-import texture2ddecoder ^
@@ -38,7 +34,7 @@ rem --noupx: UPX-packed executables are often flagged by antivirus and start slo
   --add-data "%CD%\third_party\dxc;third_party\dxc" ^
   launcher.py || goto :fail
 
-rem Optional installer (only if Inno Setup is installed); it is written to the master folder too.
+rem Optional installer
 where iscc >nul 2>nul
 if not errorlevel 1 iscc /DMyAppVersion=%VERSION% "/DStageDir=%STAGE%\ApexAssetStudio" "/O%MASTER%" installer\ApexAssetStudio.iss
 
@@ -50,7 +46,7 @@ if errorlevel 8 goto :fail
 echo Writing release ZIPs to %MASTER%\Releases
 .venv\Scripts\python.exe package_release.py || goto :fail
 
-rem Clean up: no leftover EXEs in Source (older builds used dist\ and build\native-preview\).
+rem Clean up
 rmdir /s /q "%STAGE%" 2>nul
 rmdir /s /q "%WORK%" 2>nul
 rmdir /s /q dist 2>nul

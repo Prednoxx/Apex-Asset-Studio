@@ -1,8 +1,4 @@
-"""Bounded native RPak edit-stream reconstruction; no extractor executable.
-
-The command format follows the published Respawn patch reverse engineering.
-Pages are retained at their original indices; header relocation is unnecessary.
-"""
+"""Bounded native patch reconstruction."""
 import struct
 from collections import Counter
 from .oodle_stream import ScanCancelled
@@ -51,7 +47,7 @@ class Chain:
             size = min(count,end-start-self.offset)
             if not size:
                 self.index += 1;self.offset = 0;continue
-            # Small chunks keep giant copy commands from allocating gigabyte buffers.
+            # Bound copy allocation size
             size = min(size,4*1024*1024)
             yield data[start+self.offset:start+self.offset+size]
             self.offset += size;self.consumed += size;count -= size

@@ -1,4 +1,4 @@
-"""Native v20 studio / rev4 VG decoder. Unsupported encodings fail explicitly."""
+"""Studio v20, VG rev4."""
 from dataclasses import dataclass, field
 import math
 import struct
@@ -66,8 +66,8 @@ class Model:
     rig_guids: list
     warnings: list
     material_family_resolved: bool = True
-    lod_levels: list = field(default_factory=list)  # every LOD the model declares, decoded or not
-    partial: bool = False                            # True when only the first LOD was decoded (fast preview)
+    lod_levels: list = field(default_factory=list)  # Includes undecoded LODs
+    partial: bool = False                            # First-LOD preview only
 
 
 def unpack_normal(value):
@@ -113,7 +113,7 @@ def simple_bone_influences(w0, w1, packed_bones):
 
 
 def decode_vertices_reference(mesh, g, base, vc, stride, vf, flags, states, extra_base, es):
-    """Original one-vertex-at-a-time decoder, kept as the reference the fast path is tested against."""
+    """Reference per-vertex decoder."""
     for v in range(vc):
         p = base + v * stride
         start = p
@@ -165,7 +165,7 @@ def decode_vertices_reference(mesh, g, base, vc, stride, vf, flags, states, extr
 
 
 def unpack_normals(values):
-    """Vectorised unpack_normal for a uint32 array; returns an (n, 3) float64 array."""
+    """Vectorized XYZ float64 normals."""
     v = values.astype(np.int64)
     major = (v >> 29) & 3
     if (major == 3).any(): raise ValueError('invalid packed normal major axis')
@@ -178,7 +178,7 @@ def unpack_normals(values):
 
 
 def unpack_tangents(values, normals):
-    """Vectorised unpack_tangent; returns an (n, 4) float64 array (xyz + handedness)."""
+    """Vectorized XYZW float64 tangents."""
     v = values.astype(np.int64)
     x, y, z = normals[:, 0], normals[:, 1], normals[:, 2]
     flip = z < -0.999899983
@@ -194,8 +194,8 @@ def unpack_tangents(values, normals):
 
 
 def decode_vertices(mesh, g, base, vc, stride, vf, flags, states, extra_base, es):
-    """Decode a whole vertex buffer at once with numpy (same results as decode_vertices_reference)."""
-    if vc == 0:  # empty meshes (common in lower LODs) carry no vertex format; nothing to check or decode
+    """Vectorized native vertex decoding."""
+    if vc == 0:  # Empty meshes lack vertex format
         mesh.positions, mesh.packed_normals, mesh.normals, mesh.tangents, mesh.uvs, mesh.weights = [], [], [], [], [], []
         return
     if base < 0 or base + vc * stride > len(g.data): raise ValueError('model read outside buffer')
@@ -245,12 +245,12 @@ def decode_vertices(mesh, g, base, vc, stride, vf, flags, states, extra_base, es
         bones = np.stack((packed_bones & 255, (packed_bones >> 8) & 255, (packed_bones >> 16) & 255), axis=1)
         values = np.stack((wa, wb, last), axis=1)
         slot = np.arange(3)[None, :]
-        # the derived weight sits at position `count`; stored weights fill the slots before it
+        # Remainder follows stored weights
         values = np.where(slot < count[:, None], values, 0)
         values[np.arange(vc), count] = last
         used = (slot <= count[:, None]) & (values > 0)
         if (bones[used] >= state_count).any(): raise ValueError('invalid bone influence')
-        # stored weights plus the derived remainder always total 32767, so these sum to one by construction
+        # 32767 total weight
         mapped = np.asarray(states, dtype=np.int64)[np.minimum(bones, max(state_count - 1, 0))]
         scaled = values / 32767
         weights = [[(b, w) for b, w, keep in zip(rb, rw, ru) if keep]
@@ -309,7 +309,7 @@ def decode_model(archive, asset, family=None, stop=None, allow_unresolved_family
     reader = PageReader(archive)
     header = reader.header(asset)
     studio = reader.pointer(header, 0xe4)
-    # Keep every relative read inside the studio's owning page.
+    # Bound reads to owning page
     page_index = struct.unpack_from('<i', archive.data, header)[0]
     end = reader.offsets[page_index] + archive.pages[page_index].size
     b = Buffer(archive.data[studio:end])
@@ -361,7 +361,7 @@ def decode_model(archive, asset, family=None, stop=None, allow_unresolved_family
     groups = [b.unpack('<iii4B', 0xc4 + fix(grp_off) + i * 16) for i in range(grp_count)]
     lod_levels = sorted({li + k for (_o, _c, _r, _comp, li, lc, _lm) in groups for k in range(lc)})
     wanted = range(grp_count)
-    if first_lod_only and groups:  # preview only needs the most detailed LOD; the rest decode on demand
+    if first_lod_only and groups:  # Other LODs decode on demand
         wanted = [min(range(grp_count), key=lambda i: groups[i][4])]
     for i in wanted:
         if stop and stop.is_set():
@@ -402,7 +402,7 @@ def decode_model(archive, asset, family=None, stop=None, allow_unresolved_family
                 try:
                     decode_vertices(mesh, *args)
                 except Exception as fast_error:
-                    # safety net: if the fast path ever disagrees with the format, fall back to the reference decoder
+                    # Mismatch uses reference decoder
                     mesh.positions, mesh.packed_normals, mesh.normals, mesh.tangents, mesh.colors, mesh.uvs, mesh.weights = [], [], [], [], [], [], []
                     decode_vertices_reference(mesh, *args)
                     warnings.append(f'{mesh.name} (LOD {level}) used the slow vertex decoder: {fast_error}')

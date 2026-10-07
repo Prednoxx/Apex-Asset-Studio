@@ -7,7 +7,7 @@ from apex_asset_studio.rpak import starpak
 
 
 class StarPakIndexTest(unittest.TestCase):
-    """The StarPak table is read in one go and cached; the result must match the entry-by-entry reading."""
+    """Cached table matches reference reads."""
     def test_index_and_cache(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'test.starpak'
@@ -19,7 +19,7 @@ class StarPakIndexTest(unittest.TestCase):
             self.assertEqual(sorted(first.entries), [0, 4096, 12288])
             self.assertEqual(first.entries[4096].size, 8192)
             again = starpak.StarPakIndex(path).parse()
-            self.assertIs(again.entries, first.entries)  # served from the cache
+            self.assertIs(again.entries, first.entries)
             self.assertEqual(len(again.read(4096)), 8192)
 
     def test_rejects_overlapping_table(self):

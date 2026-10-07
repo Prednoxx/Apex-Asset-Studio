@@ -1,4 +1,4 @@
-"""Resolve names and model packages from typed itemflav data, with evidence."""
+"""Typed cosmetic relationships."""
 from __future__ import annotations
 import json
 import re
@@ -48,7 +48,7 @@ def rebuild_cosmetics(db):
             owner_values = json.loads(owner["details"])["values"]
             owner_name, owner_key = localize(owner_values)
             if not owner_name:
-                continue  # Raw data remains available in Advanced View.
+                continue
             for declared in owner_values.get("skins", []):
                 skin_path = declared.get("flavor", "")
                 skin = by_guid.get(guid_text(skin_path)) if skin_path else None
@@ -57,7 +57,7 @@ def rebuild_cosmetics(db):
                 values = json.loads(skin["details"])["values"]
                 if values.get("isTheFavoriteSentinel"):
                     continue
-                # A declared parent is authoritative and must agree with the skin list.
+                # Declared parent must match
                 if values.get("parentItemFlavor") and guid_text(values["parentItemFlavor"]) != owner["guid"]:
                     continue
                 skin_name, skin_key = localize(values)
@@ -77,7 +77,7 @@ def rebuild_cosmetics(db):
                         if odl and odl["status"] == "on_demand_asset_decoded":
                             info = json.loads(odl["details"])
                             if info["original_guid"] != original_guid:
-                                continue  # Never substitute a different model.
+                                continue
                             pak = by_guid.get(info["pak_guid"])
                             if pak and pak["status"] == "on_demand_package_decoded":
                                 pak_name = json.loads(pak["details"])["pak_name"]
@@ -104,9 +104,7 @@ LOBBY_LIGHTS = ('Key', 'Fill', 'RimL', 'RimR')
 
 
 def lobby_lighting(skin_values, owner_values):
-    """The four lobby / character-select lights the game uses to present a skin: the skin's own set when it has
-    one (hasCustomCharSelectLighting), otherwise the Legend's default. Positions aren't stored in the settings,
-    only color, brightness, range and cone, so importers place them in the usual key / fill / rim layout."""
+    """Custom or inherited lobby lights."""
     custom = bool(skin_values.get('hasCustomCharSelectLighting'))
     source, prefix = (skin_values, 'menuCustomLight') if custom else (owner_values or {}, 'menuLight')
     lights = {}
@@ -127,9 +125,7 @@ _SOURCES = (('ace', 'Anniversary Event'), ('bp', 'Battle Pass'), ('ce', 'Collect
 
 
 def release_info(values):
-    """(season number or None, how it was released) from the item's source tag, e.g.
-    'rui/events/s20ce02/item_source_icon' -> (20, 'Collection Event'), 'rui/events/s03bp/…' -> (3, 'Battle Pass').
-    Untagged commons are the Legend's or weapon's base skins; other untagged items are store items."""
+    """Season/source from item tags."""
     tag = str(values.get('tagIcon') or '')
     code = re.search(r'rui/events/([a-z0-9]+)/', tag)
     if code:
@@ -152,7 +148,7 @@ def release_info(values):
 
 
 def add_release_info(db, settings_values):
-    """Fill season/source into cosmetics indexed before they were recorded (keeps row ids). Returns rows updated."""
+    """Backfill release data in place."""
     updated = 0
     for row in db.execute("SELECT id, skin_guid, details FROM cosmetics").fetchall():
         details = json.loads(row['details'])

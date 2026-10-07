@@ -10,8 +10,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-# The RTech container decoder table is derived from the public RSX implementation.
-# RSX is AGPL-3.0; this project is distributed under AGPL-3.0 as well.
+# RSX-derived table; see notices
+# AGPL-3.0-or-later; see LICENSE
 _LUT_B64 = (
 "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"
 )
@@ -35,7 +35,7 @@ def _s8(v: int) -> int:
 
 
 def _read_u64(buf: bytes | bytearray | memoryview, pos: int) -> int:
-    # The native decoder performs unaligned qword reads. Pad short tail reads.
+    # Pad unaligned tail reads
     if pos < 0:
         raise ValueError("negative read position")
     end = pos + 8
@@ -68,7 +68,7 @@ class PakDecoderContext:
 
 
 def init_pak_decoder(data: bytes, data_size: int, data_offset: int, header_size: int) -> PakDecoderContext:
-    """Initialize Respawn/RTech's RPak LZ decoder for a full in-memory input buffer."""
+    """Initialize full-buffer RTech decoder."""
     ctx = PakDecoderContext(input_buf=data)
     ctx.file_size = data_offset + data_size
 
@@ -136,7 +136,7 @@ def init_pak_decoder(data: bytes, data_size: int, data_offset: int, header_size:
 def _overlap_copy(out: bytearray, dst: int, src: int, count: int) -> None:
     if src < 0:
         raise ValueError(f"invalid back-reference: src={src}, dst={dst}, count={count}")
-    # LZ copies are allowed to overlap; copy byte-wise to preserve that behavior.
+    # Preserve overlapping LZ copies
     for i in range(count):
         if src + i >= len(out):
             raise ValueError("back-reference exceeded output buffer")
@@ -144,11 +144,7 @@ def _overlap_copy(out: bytearray, dst: int, src: int, count: int) -> None:
 
 
 def decompress_rtech_payload(file_data: bytes, header_size: int, compressed_size: int, expected_decompressed_size: int | None = None) -> bytes:
-    """Decode an RTech-compressed RPak into a complete decompressed RPak buffer.
-
-    The returned buffer includes the original RPak header at the front, matching the
-    layout expected by the archive parser.
-    """
+    """Decode RPak, retaining header."""
     ctx = init_pak_decoder(file_data, compressed_size, 0, header_size)
     total_size = expected_decompressed_size or ctx.decomp_size
     if total_size < header_size:
@@ -166,10 +162,8 @@ def decompress_rtech_payload(file_data: bytes, header_size: int, compressed_size
     decomp_size = min(ctx.decomp_size, total_size)
     compressed_limit = min(ctx.compressed_stream_size, len(file_data))
 
-    # This is the full-buffer path used by the application. RSX's native decoder also
-    # supports circular streaming buffers; Apex Asset Studio materializes the whole file.
-    # Native decoder performs one accumulator normalization before entering its
-    # command loop, then normalizes again at the tail of each iteration.
+    # Full-buffer path only
+    # Normalize before first command
     if v7:
         q = _read_u64(v11_data, v9)
         v13 = _u64(_u64(q << ((64 - v7) & 63)) | v8)
@@ -260,9 +254,7 @@ def decompress_rtech_payload(file_data: bytes, header_size: int, compressed_size
                     v43 = v41 >> 4
                     v44 = _read_u32_lut(1152 + 4 * v46)
                     v45 = _LUT[1216 + v46]
-                    # Native code may pull one extra byte when its bit accumulator crosses
-                    # a 64-bit boundary. Refill on the next loop is sufficient for the
-                    # full-buffer path except for this explicit crossing case.
+                    # Refill across 64-bit boundary
                     if v7 + v45 >= 61 and v9 < len(file_data):
                         v43 |= file_data[v9] << (61 - v7)
                         v9 += 1
@@ -275,9 +267,7 @@ def decompress_rtech_payload(file_data: bytes, header_size: int, compressed_size
                     raise ValueError("RTech match exceeds output buffer")
                 if v26 < 8:
                     v50 = v48 - 13
-                    # The native implementation accounts for its initial 16-byte speculative
-                    # copy by reducing the committed output count by 13 here. The equivalent
-                    # byte-wise path copies the actual match length directly.
+                    # Commit actual match length
                     actual = max(0, v50)
                     if v26 == 1:
                         if src < 0 or src >= len(out):
@@ -305,7 +295,6 @@ def decompress_rtech_payload(file_data: bytes, header_size: int, compressed_size
                 f"RTech compressed stream ended early at input {v9:#x}; output {v5:#x}/{decomp_size:#x}"
             )
 
-        # Refill the native bit accumulator for the next command.
         q = _read_u64(v11_data, v9)
         v13 = _u64(_u64(q << ((64 - v7) & 63)) | v19) if v7 else v19
         old_v7 = v7
@@ -319,13 +308,7 @@ def decompress_rtech_payload(file_data: bytes, header_size: int, compressed_size
 
 
 class OodleRuntime:
-    """Oodle-compatible decompression backend.
-
-    Preferred backend is the open-source ``pyooz`` package (GPL-3.0-or-later), which
-    exposes the ooz Kraken/Mermaid/Selkie/Leviathan decoder directly to Python. A
-    locally installed Oodle DLL is retained only as a fallback. No proprietary Oodle
-    binary is bundled by Apex Asset Studio.
-    """
+    """Open-source decoder; local DLL fallback."""
 
     def __init__(self, game_root: str | os.PathLike[str]):
         self.game_root = Path(game_root)
@@ -337,7 +320,7 @@ class OodleRuntime:
         self._find_and_load()
 
     def _find_and_load(self) -> None:
-        # First use the redistributable/open-source decoder installed with AAS.
+        # Prefer open-source decoder
         try:
             module = importlib.import_module("ooz")
             if callable(getattr(module, "decompress", None)):
@@ -347,7 +330,7 @@ class OodleRuntime:
         except Exception:
             pass
 
-        # Fallback for developers/users who already have a compatible local Oodle DLL.
+        # Existing local DLL fallback
         patterns: list[Path] = []
         env_hint = os.environ.get("APEX_ASSET_STUDIO_OODLE_DLL")
         if env_hint:

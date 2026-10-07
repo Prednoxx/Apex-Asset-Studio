@@ -12,7 +12,7 @@ class StarPakEntry:
     size: int
 
 
-_INDEX_CACHE: dict = {}  # (path, size, mtime) -> entries; a StarPak's table is read once per app run
+_INDEX_CACHE: dict = {}  # Source-fingerprinted table cache
 
 
 class StarPakIndex:
@@ -37,7 +37,7 @@ class StarPakIndex:
                 raise ValueError("invalid StarPak footer table")
             f.seek(size - 8 - table_bytes)
             table_start = size - 8 - table_bytes
-            table = f.read(table_bytes)  # the whole table in one read instead of one read per entry
+            table = f.read(table_bytes)
             if len(table) != table_bytes:
                 raise ValueError("truncated StarPak footer table")
         entries = {}

@@ -1,10 +1,4 @@
-"""Logging, crash recovery, the problems list and bug reports. Mixed into the app.
-
-- Errors and crash tracebacks go to logs/app.log in the local data folder (rotated at 2 MB). Nothing is sent anywhere.
-- running.json records the current activity; if the app exits without clearing it, the next start reports it and
-  removes incomplete export folders.
-- Skins that fail to load or export are listed under Advanced › Diagnostics › Problems.
-- "Save bug report…" writes a local ZIP (logs, problems, settings, system info) with the home folder path redacted."""
+"""Diagnostics and crash recovery."""
 import json
 import os
 import platform
@@ -22,7 +16,7 @@ LOG_LIMIT = 2 * 1024 * 1024
 
 
 def _redact(text):
-    """Bug reports are meant to be shared: replace the home folder (it contains the Windows user name) with ~."""
+    """Redact username from shared reports."""
     home = str(Path.home())
     for variant in {home, home.replace('\\', '/'), home.replace('\\', '\\\\')}:
         if len(variant) > 3: text = text.replace(variant, '~')
@@ -56,7 +50,6 @@ class Reliability:
         sys.excepthook = self._uncaught
         threading.excepthook = lambda args: self._uncaught(args.exc_type, args.exc_value, args.exc_traceback, args.thread)
 
-    # ------------------------------------------------------------------ logging
     def _file_log(self, text):
         try:
             with self._log_lock, open(self._log_path, 'a', encoding='utf-8') as handle:
@@ -69,7 +62,7 @@ class Reliability:
         self._file_log(f'Uncaught error{where}:\n' + ''.join(traceback.format_exception(kind, value, tb)))
 
     def report_callback_exception(self, kind, value, tb):
-        """Tk calls this for errors in button handlers and timers: log it and keep the app running."""
+        """Log Tk callback failures."""
         self._uncaught(kind, value, tb)
         try:
             from .common import friendly_error
@@ -78,7 +71,6 @@ class Reliability:
         except Exception:
             pass
 
-    # ------------------------------------------------------------------ unclean exits
     def _set_activity(self, activity):
         try:
             self._marker.write_text(json.dumps({'pid': os.getpid(), 'activity': activity, 'since': time.time(),
@@ -92,7 +84,7 @@ class Reliability:
         self._file_log('--- closed normally')
 
     def _report_previous_run(self):
-        """Called once the window is up: mention an unexpected close and tidy up after it."""
+        """Report and recover unclean exit."""
         previous = self._previous_run
         if not previous: return
         activity = previous.get('activity', 'unknown')
@@ -105,8 +97,7 @@ class Reliability:
         self._log(f'Previous run ended unexpectedly while {activity}.{extra}')
 
     def _remove_partial_exports(self):
-        """Exports are written to a hidden '.export-…' folder first and moved into place at the end; any left
-        over are from an interrupted export."""
+        """Remove interrupted staged exports."""
         root = Path(self.export_path_var.get())
         removed = 0
         if not root.is_dir(): return 0
@@ -117,7 +108,6 @@ class Reliability:
                 shutil.rmtree(path, ignore_errors=True); removed += 1
         return removed
 
-    # ------------------------------------------------------------------ problems
     def _load_problems(self):
         try:
             value = json.loads(self._problems_path.read_text(encoding='utf-8'))
@@ -149,7 +139,6 @@ class Reliability:
         except OSError: pass
         self._show_problems()
 
-    # ------------------------------------------------------------------ bug report
     def save_bug_report(self):
         from tkinter import filedialog
         out = filedialog.asksaveasfilename(title='Save bug report', defaultextension='.zip', filetypes=[('ZIP', '*.zip')],

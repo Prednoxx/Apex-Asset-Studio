@@ -1,5 +1,4 @@
-"""Blender add-on smoke test. Runs only where Blender's Python module is installed (pip install bpy), otherwise
-skipped: every lighting preset builds, live tweaks apply, and removing the rig restores the scene."""
+"""Blender addon smoke checks."""
 import sys
 import unittest
 from pathlib import Path
@@ -55,7 +54,7 @@ class BlenderAddonTests(unittest.TestCase):
         settings.turntable_seconds = 2
         self.assertEqual(bpy.ops.aas.turntable(), {'FINISHED'})
         self.assertEqual(cylinder.parent.name, 'AAS Turntable')
-        self.assertEqual(bpy.ops.aas.apply_lighting(preset='RIM'), {'FINISHED'})  # relighting keeps the turntable
+        self.assertEqual(bpy.ops.aas.apply_lighting(preset='RIM'), {'FINISHED'})  # Relighting preserves turntable
         self.assertIsNotNone(bpy.data.objects.get('AAS Turntable'))
         bpy.ops.aas.remove_turntable()
         self.assertIsNone(cylinder.parent)

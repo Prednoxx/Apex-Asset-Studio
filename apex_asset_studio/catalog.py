@@ -86,9 +86,7 @@ CREATE INDEX IF NOT EXISTS idx_animation_links_target ON animation_links(target_
 """
 
 
-# These are raw asset-type groupings only. Human-readable character/skin groupings are
-# deliberately *not* inferred from filenames. They should only appear after a real
-# itemflav/localization resolver can substantiate them.
+# Raw types; resolve cosmetics separately
 SIMPLE_TYPE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Models", ("mdl_",)),
     ("Animations", ("aseq", "arig")),
@@ -99,7 +97,7 @@ SIMPLE_TYPE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 
 def _purge_container(db, cid):
-    """Remove every indexed row that belongs to one container (the container row itself is kept)."""
+    """Purge rows, retain container."""
     db.execute("DELETE FROM asset_details WHERE asset_id IN (SELECT id FROM assets WHERE container_id=?)", (cid,))
     db.execute("DELETE FROM asset_dependencies WHERE asset_id IN (SELECT id FROM assets WHERE container_id=?)", (cid,))
     db.execute("DELETE FROM assets WHERE container_id=?", (cid,))
@@ -160,11 +158,7 @@ class Catalog:
         progress: Callable[[str, int, int], None] | None = None,
         stop_event: threading.Event | None = None,
     ) -> ScanStats:
-        """Update the index from the installed game.
-
-        Successful unchanged RPaks are skipped. Failed RPaks are always retried so a decoder
-        fix immediately repairs the index without forcing users through a destructive rebuild.
-        """
+        """Skip unchanged; retry failures."""
         pak_root = find_pak_root(game_root)
         rpaks = sorted(pak_root.rglob("*.rpak"))
         stats = ScanStats()
@@ -311,7 +305,7 @@ class Catalog:
                     )
 
             if not stats.stopped:
-                # Never leave vanished packages or assets from a different install in the current library.
+                # Purge vanished/wrong-install packages
                 present = {str(p) for p in rpaks}
                 for old in db.execute("SELECT id,path FROM containers").fetchall():
                     if old['path'] not in present:
@@ -363,7 +357,7 @@ class Catalog:
         }
 
     def simple_sections(self) -> list[dict]:
-        """Return only sections supported by real indexed asset rows."""
+        """Indexed sections only."""
         with self.connect() as db:
             counts = {r["type"]: r["n"] for r in db.execute(
                 "SELECT type,COUNT(*) n FROM assets GROUP BY type"
@@ -375,11 +369,7 @@ class Catalog:
                 sections.append({"label": label, "types": types, "count": count})
         return sections
 
-    # ---- search ---------------------------------------------------------------------------------
-    # Searches stream rows and stop at the page size, and counts stop at COUNT_CAP, so common terms return
-    # instantly and rare ones cost one pass over the table. The UI runs them off the main thread.
-    # (A trigram full-text index was measured: it added ~250 MB per million assets and was slower for common
-    # terms, so it isn't used.)
+    # Bounded streaming search; capped counts
     COUNT_CAP = 10000
 
     @staticmethod
@@ -404,7 +394,7 @@ class Catalog:
             return db.execute(sql, [*args, limit, offset]).fetchall()
 
     def count_assets(self, text: str = "", asset_type: str | None = None) -> int:
-        """Number of matches, stopping at COUNT_CAP + 1 (show as "10,000+")."""
+        """Count through COUNT_CAP + 1."""
         where, args = self._asset_filter(text, asset_type)
         with self.connect() as db:
             return db.execute(f"""SELECT COUNT(*) FROM (SELECT 1 FROM assets a JOIN containers c ON c.id=a.container_id
@@ -431,7 +421,7 @@ class Catalog:
                 (f'%{text}%', f'%{text}%', owner_guid, owner_guid, limit)).fetchall()
 
     def settings_values(self, guid):
-        """Decoded settings values of one settings asset (an item flavor), or {}."""
+        """Decoded settings or empty."""
         with self.connect() as db:
             row = db.execute("""SELECT d.details FROM assets a JOIN asset_details d ON d.asset_id=a.id
                 WHERE a.guid=? AND d.status='settings_decoded' LIMIT 1""", (guid,)).fetchone()
@@ -439,7 +429,7 @@ class Catalog:
         except (ValueError, TypeError): return {}
 
     def ensure_release_info(self):
-        """Libraries scanned before seasons were recorded get them added in place (row ids unchanged)."""
+        """Backfill seasons, preserve row IDs."""
         from .cosmetics import add_release_info
         def lookup(db, guid):
             row = db.execute("""SELECT d.details FROM assets a JOIN asset_details d ON d.asset_id=a.id
@@ -460,8 +450,7 @@ class Catalog:
                 LEFT JOIN containers c ON c.id=a.container_id WHERE e.asset_id=? ORDER BY e.reference_index,c.filename""", (asset_id,)).fetchall()
 
     def _rebuild_animation_links(self, db):
-        """Store which sequences each rig and model declares, so the Animations window doesn't have to parse
-        every sequence header each time it opens."""
+        """Cache declared model/rig sequences."""
         db.execute('DELETE FROM animation_links')
         links = []
         for row in db.execute('''SELECT a.guid,a.type,d.details FROM assets a JOIN asset_details d ON d.asset_id=a.id
@@ -477,7 +466,7 @@ class Catalog:
                    (stamp[0] if stamp else 'built',))
 
     def ensure_animation_links(self):
-        """Build the animation link table once for libraries scanned before it existed (a few seconds, one time)."""
+        """Backfill missing animation links."""
         with self._lock, self.connect() as db:
             built = db.execute("SELECT value FROM meta WHERE key='links_stamp'").fetchone()
             stamp = db.execute("SELECT value FROM meta WHERE key='index_stamp'").fetchone()
@@ -485,7 +474,7 @@ class Catalog:
                 self._rebuild_animation_links(db)
 
     def declared_animations(self, model_guid, rig_guids):
-        """Return exact typed links; this does not assert decoded tracks or retargetability."""
+        """Declared links, not track compatibility."""
         self.ensure_animation_links()
         rig_guids = list(rig_guids)
         with self.connect() as db:

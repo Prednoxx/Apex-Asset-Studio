@@ -1,4 +1,4 @@
-"""Frozen desktop entrypoint uses absolute imports, unlike package __main__."""
+"""Frozen desktop entrypoint."""
 import json
 import sys
 import tempfile
@@ -10,7 +10,7 @@ from apex_asset_studio.ui.app import main, ApexAssetStudioApp
 
 
 def smoke_test(output, model_guid=None, family=None):
-    """Exercise the packaged GUI and native modules without touching a user's catalog."""
+    """Isolated packaged GUI/native probe."""
     result = {'ok': False, 'frozen': bool(getattr(sys, 'frozen', False))}
     try:
         import ooz

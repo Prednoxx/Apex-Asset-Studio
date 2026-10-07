@@ -1,5 +1,4 @@
-"""The animation browser dialog: filter the sequences declared for the loaded model, preview them on a second
-viewport, then use one."""
+"""Compatible animation picker."""
 import time
 import tkinter as tk
 from pathlib import Path
@@ -9,7 +8,7 @@ from .preview import ModelPreview
 
 
 def show_animation_picker(self):
-    """Modal browser for the sequences declared for the loaded model, with a live preview. `self` is the app."""
+    """Preview and confirm declared clips."""
     if not self._model or self._busy or self._scanning: return
     if self._animation_picker: self._animation_picker['window'].lift();return
     self._playing=False;self.play_btn.configure(text='Play')
@@ -93,7 +92,7 @@ def show_animation_picker(self):
         window.after_cancel(layout_timer)
         query.trace_remove('write',query_trace);picker.pop('ready',None)
         self._set_busy(False);window.grab_release();window.destroy()
-        # Worker allocations can collect closed-dialog cycles; release Tcl variables on the UI thread.
+        # Release Tcl variables on UI-thread
         for variable in (query,blend,info,position,details):
             variable.__del__();variable._tk=None
         if confirm and clip is not None:self._apply_animation(clip)

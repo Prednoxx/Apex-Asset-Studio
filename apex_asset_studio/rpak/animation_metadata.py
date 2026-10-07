@@ -1,4 +1,4 @@
-"""Declared animation relationships, separate from unimplemented track decoding."""
+"""Declared animation links."""
 import struct
 from .pages import PageReader
 

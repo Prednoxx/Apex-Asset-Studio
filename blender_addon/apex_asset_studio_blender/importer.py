@@ -1,4 +1,4 @@
-"""Imports an Apex Asset Studio export (.aas.json): the glTF/GLB model or animation plus its materials."""
+"""Import AAS model/animation packages."""
 import json
 from pathlib import Path
 
@@ -86,7 +86,7 @@ def _matching(material, mats):
 
 
 def assign_materials(objects, mats):
-    """Replace the glTF importer's placeholder materials with the built Apex materials."""
+    """Replace imported materials with AAS."""
     for obj in objects:
         if obj.type != 'MESH': continue
         for slot in obj.material_slots:
@@ -101,8 +101,7 @@ def _base_name(name):
 
 
 def swap_skin(context, path: Path):
-    """Put another skin's materials (a recolor of the same model) on the model already in the scene, without
-    re-importing the mesh: the export's model is loaded briefly only to read which material sits in which slot."""
+    """Apply recolor without replacing geometry."""
     desc = json.loads(path.read_text(encoding='utf-8'))
     guid = desc.get('metadata', {}).get('model_guid', '')
     current = [o for o in context.scene.objects if o.type == 'MESH' and o.get('aas_model_guid')]

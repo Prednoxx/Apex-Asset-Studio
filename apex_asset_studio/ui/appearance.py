@@ -1,8 +1,4 @@
-"""Validated, atomically saved appearance preferences and the glossy ttk theme.
-
-Themes share one glossy glass look and differ in palette, type, button shape and background picture
-(resources/backgrounds).
-"""
+"""Appearance preferences and themes."""
 import json
 import re
 from pathlib import Path
@@ -27,13 +23,12 @@ def _fontset(head=_SEMI, title=_SEMI, display=_LIGHT, ui=_UI, ui_size=10, title_
                 mono_small=_F(_MONO, 8))
 
 
-# Trebuchet headings for Meadow; Segoe UI Light titles for Glass.
 _ECO_HEAD = (('Trebuchet MS', 'bold'),) + _SEMI
 _METRO_TITLE = ('Segoe UI Light',) + _LIGHT
 
 
 def _theme(colors, backdrop, radius=6, shine=1.0, mascot_accent=False, fonts=None):
-    """radius: corner radius of buttons and fields (None = capsule); shine: strength of the gloss highlight."""
+    """Corner radius and gloss strength."""
     return dict(colors=colors, fonts=fonts or _fontset(),
                 fx=dict(backdrop=backdrop, radius=radius, shine=shine, mascot_accent=mascot_accent))
 
@@ -67,26 +62,24 @@ STYLES = {
              muted='#c4a5c9', accent='#e8304a', accent2='#d660e0', viewport='#140a18'), 'sweetheart.jpg', radius=None),
 }
 DEFAULT_STYLE = 'Aero Day'
-RENAMED = {'Frutiger Aqua': 'Aqua', 'Frutiger Eco': 'Meadow', 'Frutiger Metro': 'Glass'}  # names used before 0.4
+RENAMED = {'Frutiger Aqua': 'Aqua', 'Frutiger Eco': 'Meadow', 'Frutiger Metro': 'Glass'}  # Legacy theme names
 STYLE_ORDER = list(STYLES)
 TEXT_SCALES = (('Small', .9), ('Normal', 1.0), ('Large', 1.15), ('Larger', 1.3), ('Largest', 1.5))
 
 
 def rarity(t):
-    """Rarity text colors, deepened on light palettes and nudged toward the text color until they meet WCAG AA
-    (AAA with high contrast) on the list background."""
+    """Contrast-adjusted rarity colors."""
     colors = dict(RARITY) if not t.get('light') else {
         'common': '#7d7a86', 'rare': '#1d87cf', 'epic': '#9147cf', 'legendary': '#c98a00',
         'mythic': '#e0335a', 'heirloom': '#e0335a', 'iconic': '#e0335a'}
     need = 7 if ACTIVE.get('contrast') else 4.5
     return {key: readable(color, t['surface'], need, t['text']) for key, color in colors.items()}
 DEFAULT_PRESET = DEFAULT_STYLE
-# The mascot, Lumi-tan: full artwork (startup screen, Settings) and her avatar (header orb, window/app icon).
 _RESOURCES = __import__('pathlib').Path(__file__).resolve().parents[1] / 'resources'
 MASCOT_NAME = 'Lumi-tan'
 MASCOT_ART = _RESOURCES / 'lumi.webp'
 MASCOT_AVATAR = _RESOURCES / 'lumi_avatar.png'
-MASCOT_ACCENT = '#0fb58a'  # her hair teal (the Aero themes' accent when 'Use mascot accent color' is on)
+MASCOT_ACCENT = '#0fb58a'
 ACTIVE = {'style': DEFAULT_STYLE, 'scale': 1.0, 'contrast': False, 'reduce': False, 'mascot_accent': None}
 
 
@@ -95,8 +88,7 @@ def style(name=None):
 
 
 def fx():
-    """The active theme's material: backdrop art, corner radius, gloss strength. Reduce effects keeps the shapes
-    but swaps the backdrop art for a plain gradient and tones the gloss down."""
+    """Active theme effects."""
     base = style()['fx']
     if not ACTIVE.get('reduce'): return base
     return dict(base, backdrop='plain', shine=min(base['shine'], .4))
@@ -118,7 +110,7 @@ def normalize(value):
     preset = RENAMED.get(value.get('preset', DEFAULT_STYLE), value.get('preset', DEFAULT_STYLE))
     if preset not in STYLES and preset != 'Custom': preset = DEFAULT_STYLE
     base = RENAMED.get(value.get('base', DEFAULT_STYLE), value.get('base', DEFAULT_STYLE)) if preset == 'Custom' else preset
-    if base not in STYLES: preset = base = DEFAULT_STYLE  # themes from older versions fall back to the default
+    if base not in STYLES: preset = base = DEFAULT_STYLE  # Fallback for obsolete themes
     colors = dict(STYLES[base]['colors'])
     supplied = value.get('colors', {})
     if preset == 'Custom' and isinstance(supplied, dict):
@@ -134,7 +126,7 @@ def normalize(value):
 
 
 def effective_colors(value):
-    """Palette after the 'match accent to mascot' option (named styles that allow it only)."""
+    """Apply optional mascot accent."""
     colors = dict(value['colors'])
     accent = ACTIVE.get('mascot_accent')
     if accent and value.get('mascot_accent', True) and value.get('preset') != 'Custom' and STYLES[value['base']]['fx'].get('mascot_accent'):
@@ -159,7 +151,7 @@ def _rgb(color): return [int(color[i:i+2], 16) for i in (1, 3, 5)]
 
 
 def mix(a, b, amount):
-    """Blend color a over b by amount (0..1)."""
+    """Blend colors by amount."""
     return '#%02x%02x%02x' % tuple(round(x*amount + y*(1-amount)) for x, y in zip(_rgb(a), _rgb(b)))
 
 
@@ -177,7 +169,7 @@ def contrast(a, b):
 
 
 def readable(color, against, minimum, toward):
-    """Move color toward `toward` until it reaches the contrast minimum against `against`."""
+    """Adjust toward required contrast."""
     if contrast(color, against) >= minimum: return color
     for step in range(1, 21):
         candidate = mix(toward, color, step / 20)
@@ -186,7 +178,7 @@ def readable(color, against, minimum, toward):
 
 
 def tokens(colors):
-    """Full token set including derived values, with text contrast enforced (WCAG AA, or AAA in high contrast)."""
+    """Derived colors with enforced contrast."""
     t = dict(STYLES[DEFAULT_STYLE]['colors']); t.update(colors)
     hc = ACTIVE.get('contrast')
     for surface in ('surface', 'background'):
@@ -203,17 +195,16 @@ def tokens(colors):
     t['hover'] = mix(t['accent2'], t['raised'], .10)
     t['faint'] = mix(t['muted'], t['surface'], .55)
     need = 7 if hc else 4.5
-    t['warn'] = '#ffc53d' if luminance(t['surface']) < .5 else '#9a6400'  # amber; darker on light themes
+    t['warn'] = '#ffc53d' if luminance(t['surface']) < .5 else '#9a6400'  # Darker amber on light themes
     for surface in ('surface', 'background'): t['warn'] = readable(t['warn'], t[surface], need, t['text'])
     if t['light']:
         t['faint'] = mix(t['muted'], t['surface'], .7)
     t['faint'] = readable(t['faint'], t['surface'], 4.5 if hc else 3.0, t['text'])
     t['selection'] = mix(t['accent'], t['surface'], .62 if not t['light'] else .22)
     t['selection_text'] = '#ffffff' if contrast('#ffffff', t['selection']) >= contrast(t['text'], t['selection']) else t['text']
-    t['selection'] = readable(t['selection'], t['selection_text'], 4.5, t['surface'])  # bright accents: deepen the bar
-    t['accent_text'] = '#ffffff' if contrast('#ffffff', t['accent']) >= 3.6 else '#141414'  # white unless the accent is very light
-    # Filled accent buttons/pills use accent_fill: the accent, deepened (or lightened) just enough that their label
-    # meets the contrast minimum, with a little margin for the gloss highlight.
+    t['selection'] = readable(t['selection'], t['selection_text'], 4.5, t['surface'])  # Deepen bright selection colors
+    t['accent_text'] = '#ffffff' if contrast('#ffffff', t['accent']) >= 3.6 else '#141414'  # Contrast-dependent accent text
+    # Allow contrast margin for gloss
     t['accent_fill'] = readable(t['accent'], t['accent_text'], need + .4, '#000000' if t['accent_text'] == '#ffffff' else '#ffffff')
     t['hover'] = mix(t['accent'], t['raised'], .14)
     return t
@@ -223,7 +214,7 @@ _FONT_CACHE = {}
 
 
 def fonts(app, name=None):
-    """Font tuples for a style (the active one by default), resolved against installed families."""
+    """Resolve installed theme fonts."""
     name = name if name in STYLES else ACTIVE['style']
     scale = ACTIVE.get('scale', 1.0); key_ = (name, scale)
     if key_ in _FONT_CACHE: return _FONT_CACHE[key_]
@@ -247,7 +238,7 @@ def _png(image):
 
 
 def _photo(app, store, prefix, images):
-    """Create or update named Tk images (kept referenced: Tk deletes images whose Python object is collected)."""
+    """Retain/update named Tk images."""
     import tkinter as tk
     objects = getattr(app, store, {}); names = {}
     for key, image in images.items():
@@ -259,12 +250,11 @@ def _photo(app, store, prefix, images):
 
 
 def _control_images(app, c, f, m):
-    """Glossy buttons, fields, checkboxes, radios and slider parts for the active palette and theme material."""
+    """Render themed control images."""
     from tkinter import font as tkfont
     from . import gloss
     dark = not c['light']; shine = m['shine']; radius = m['radius']
-    # Images are exactly the widgets' natural height: ttk tiles (not stretches) an image element's middle,
-    # so a taller widget would repeat the gradient as stripes.
+    # Exact height prevents tiled stripes
     bh = tkfont.Font(font=f['strong']).metrics('linespace') + 14
     fh = tkfont.Font(font=f['body']).metrics('linespace') + 14
     corner = 6 if radius is None else radius
@@ -278,7 +268,7 @@ def _control_images(app, c, f, m):
     out['field'] = gloss.field(max(40, fh * 2), fh, c['raised'], c['border'], radius=field_radius)
     out['field_focus'] = gloss.field(max(40, fh * 2), fh, c['raised'], c['border'], focus=c['accent'], radius=field_radius)
     out['field_disabled'] = gloss.field(max(40, fh * 2), fh, c['surface'], c['border'], radius=field_radius)
-    scale = ACTIVE.get('scale', 1.0)  # checkboxes, radios and slider knobs grow with the text size
+    scale = ACTIVE.get('scale', 1.0)  # Scale controls with text
     box = round(16 * scale); check_radius = round((5 if radius is None else min(4, max(1, radius))) * scale)
     for key, fill, edge, mark in (('check_off', c['raised'], c['muted'], None), ('check_on', c['accent'], c['accent'], c['accent_text']),
                                   ('check_off_dis', c['surface'], c['border'], None), ('check_on_dis', c['border'], c['border'], c['faint'])):
@@ -307,8 +297,7 @@ _ELEMENTS = set()
 
 
 def _elements(style, n, edge):
-    """Image elements. Named images are updated in place for each palette; the stretch border depends on the corner
-    radius, so button/field elements exist once per border width (ttk cannot change an element after creation)."""
+    """Cache elements per stretch border."""
     if 'base' not in _ELEMENTS:
         style.element_create('AAS.check', 'image', n['check_off'],
                              ('disabled', 'selected', n['check_on_dis']), ('disabled', n['check_off_dis']),
@@ -331,7 +320,7 @@ def _elements(style, n, edge):
 
 
 def apply(app, value):
-    """Apply the saved appearance to every widget. Returns the color tokens."""
+    """Apply theme and return colors."""
     from tkinter import ttk, font
     import tkinter as tk
     ACTIVE['style'] = value.get('base') or DEFAULT_STYLE
@@ -352,7 +341,7 @@ def apply(app, value):
     style.configure('TFrame', background=c['background'], borderwidth=0)
     style.configure('Panel.TFrame', background=c['surface'])
     style.configure('Hairline.TFrame', background=c['border'])
-    style.configure('Focus.TFrame', background=c['accent'])  # keyboard focus ring around the 3D view
+    style.configure('Focus.TFrame', background=c['accent'])  # Viewport keyboard focus ring
     style.configure('Card.TFrame', background=c['raised'])
 
     for prefix, bg in (('', c['background']), ('Panel.', c['surface']), ('Card.', c['raised'])):
@@ -363,7 +352,7 @@ def apply(app, value):
         style.configure(f'Strong.{prefix}TLabel', font=f['strong'])
         style.configure(f'Section.{prefix}TLabel', foreground=c['muted'], font=f['small'])
         style.configure(f'Data.{prefix}TLabel', foreground=c['muted'], font=f['data'])
-        # The label sits inside a focus element so keyboard focus shows as a ring around it.
+        # Label inside focus element
         focus_ring = dict(focusthickness=1, focuscolor=c['accent'])
         style.configure(f'{prefix}TCheckbutton', background=bg, foreground=c['text'], font=f['body'], padding=(0, 3), **focus_ring)
         style.map(f'{prefix}TCheckbutton', background=[('active', bg)], foreground=[('disabled', c['faint']), ('active', c['accent'])])
@@ -379,7 +368,6 @@ def apply(app, value):
     style.configure('Placeholder.TLabel', background=c['raised'], foreground=c['faint'], font=f['body'])
     style.configure('Status.TLabel', foreground=c['muted'], font=f['small'])
 
-    # Buttons: glossy plates (image elements); ghost buttons are text-only links
     focused = [('Button.focus', {'sticky': 'nswe', 'children': [('Button.padding', {'sticky': 'nswe', 'children': [
         ('Button.label', {'sticky': 'nswe'})]})]})]
     def button(element):
@@ -395,7 +383,6 @@ def apply(app, value):
         style.configure(name, background=bg, foreground=c['muted'], padding=(8, 3), font=f['small'], focuscolor=c['accent'])
         style.map(name, background=[('active', bg)], foreground=[('disabled', c['faint']), ('active', c['text'])])
 
-    # Inputs: glossy fields
     style.layout('TEntry', [(f'{element}.field', {'sticky': 'nswe', 'children': [('Entry.padding', {'sticky': 'nswe', 'children': [
         ('Entry.textarea', {'sticky': 'nswe'})]})]})])
     style.layout('TCombobox', [(f'{element}.field', {'sticky': 'nswe', 'children': [
@@ -418,7 +405,6 @@ def apply(app, value):
     app.option_add('*TCombobox*Listbox.font', f['body'])
     app.option_add('*TCombobox*Listbox.borderWidth', 0)
 
-    # Tables and trees
     for name, bg in (('Treeview', c['surface']), ('Sidebar.Treeview', c['background'])):
         style.configure(name, background=bg, fieldbackground=bg, foreground=c['text'], rowheight=max(28, font.Font(font=f['body']).metrics('linespace') + 12),
                         borderwidth=0, relief='flat', bordercolor=bg, lightcolor=bg, darkcolor=bg, font=f['body'], indent=14)
@@ -428,7 +414,6 @@ def apply(app, value):
                     font=f['strong'], bordercolor=c['border'], lightcolor=c['surface'], darkcolor=c['surface'])
     style.map('Treeview.Heading', background=[('active', c['raised'])], foreground=[('active', c['text'])])
 
-    # Notebooks: the main pages have no tabs (the header switches them); inner notebooks get pill tabs
     style.configure('TNotebook', background=c['background'], borderwidth=0, tabmargins=(0, 0, 0, 8),
                     bordercolor=c['background'], lightcolor=c['background'], darkcolor=c['background'])
     style.configure('Pages.TNotebook', padding=0)

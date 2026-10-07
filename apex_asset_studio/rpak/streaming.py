@@ -1,4 +1,4 @@
-"""Resolve registered streaming files beneath the selected game installation."""
+"""Registered streaming file resolution."""
 from pathlib import Path
 from .starpak import StarPakIndex
 
