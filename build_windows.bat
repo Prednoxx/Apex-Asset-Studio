@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 rem The finished app goes straight into the master folder (the folder above Source):
-rem   ApexAssetStudio.exe + _internal\ (the EXE needs it beside it) + the Blender add-on ZIP.
+rem   ApexAssetStudio.exe + _internal\ (the EXE needs it beside it).
 rem Everything PyInstaller makes along the way stays in build\ and is deleted at the end,
 rem so no other folder is left with an EXE in it.
 for %%m in ("%~dp0..") do set "MASTER=%%~fm"
@@ -36,7 +36,6 @@ rem --noupx: UPX-packed executables are often flagged by antivirus and start slo
   --icon "%CD%\apex_asset_studio\resources\app_icon.ico" ^
   --add-data "%CD%\apex_asset_studio\resources;apex_asset_studio\resources" ^
   --add-data "%CD%\third_party\dxc;third_party\dxc" ^
-  --add-data "%CD%\blender_addon\ApexAssetStudio_Blender_5.2.zip;blender_addon" ^
   launcher.py || goto :fail
 
 rem Optional installer (only if Inno Setup is installed); it is written to the master folder too.
@@ -47,7 +46,6 @@ echo Copying the app into %MASTER%
 copy /y "%STAGE%\ApexAssetStudio\ApexAssetStudio.exe" "%MASTER%\" >nul || goto :fail
 robocopy "%STAGE%\ApexAssetStudio\_internal" "%MASTER%\_internal" /mir /njh /njs /ndl /nfl /np >nul
 if errorlevel 8 goto :fail
-copy /y blender_addon\ApexAssetStudio_Blender_5.2.zip "%MASTER%\" >nul
 
 echo Writing release ZIPs to %MASTER%\Releases
 .venv\Scripts\python.exe package_release.py || goto :fail
