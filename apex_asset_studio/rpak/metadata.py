@@ -47,7 +47,7 @@ def decode_archive_metadata(archive, stop_event=None):
                                    "original_guid": f"{struct.unpack_from('<Q', b, p + 24)[0]:016X}",
                                    "placeholder_guid": f"{struct.unpack_from('<Q', b, p + 32)[0]:016X}"}
                 item["status"] = "on_demand_asset_decoded"
-            elif kind == "mdl_" and asset.version in (16, 17, 18, 19, 20) and asset.header_struct_size == 96:
+            elif kind == "mdl_" and asset.version in (16, 17, 18, 19, 20, 21) and asset.header_struct_size == 96:
                 item["name"] = reader.string(reader.pointer(p + 8))
                 count = struct.unpack_from("<I", b, p + 40)[0]
                 rigs = reader.pointer(p + 32, count * 8, nullable=True)

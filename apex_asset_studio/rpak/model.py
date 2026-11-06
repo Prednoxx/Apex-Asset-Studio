@@ -1,4 +1,4 @@
-"""Studio v20, VG rev4."""
+"""Studio v20/v21, VG rev4."""
 from dataclasses import dataclass, field
 import math
 import struct
@@ -304,8 +304,8 @@ def decode_skeleton(b):
 
 
 def decode_model(archive, asset, family=None, stop=None, allow_unresolved_family=False, first_lod_only=False):
-    if asset.type_name != 'mdl_' or asset.version != 20:
-        raise ValueError(f'model version {asset.version} is not supported by the v20 decoder')
+    if asset.type_name != 'mdl_' or asset.version not in (20, 21):
+        raise ValueError(f'model version {asset.version} is not supported by the v20/v21 decoder')
     reader = PageReader(archive)
     header = reader.header(asset)
     studio = reader.pointer(header, 0xe4)

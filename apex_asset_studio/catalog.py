@@ -19,7 +19,7 @@ from .repository import AssetRepository
 
 
 INDEX_VERSION = "3"
-PAYLOAD_VERSION = 2
+PAYLOAD_VERSION = 3
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
