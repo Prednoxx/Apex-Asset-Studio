@@ -53,7 +53,7 @@ def axis_values(buffer,offset,frame,scale,base):
 
 def decode_animation(repository,model,guid,rig_guid,blend=0):
     archive,asset=repository.asset(guid)
-    if asset.type_name!='aseq' or asset.version not in (13,14):
+    if asset.type_name!='aseq' or asset.version not in (13,14,16):
         raise ValueError(f'Animation version {asset.version} is not supported')
     reader=PageReader(archive); header=reader.header(asset); sequence=reader.pointer(header)
     page=bisect.bisect_right(reader.offsets,sequence)-1

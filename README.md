@@ -28,6 +28,10 @@ The build is not code-signed. If Windows SmartScreen appears, choose **More info
 
 **Blender add-on:** Edit › Preferences › Get Extensions › ▾ › Install from Disk, then select `ApexAssetStudio_Blender_5.2.zip`. Import with File › Import › Apex Asset Studio (.aas.json). The add-on needs GLB or glTF in the export.
 
+## Updating to 0.4.2
+
+Version 0.4.2 supports the game's version 16 animation sequences in previews, exports and the animation list. Run **Scan library** after updating so animations are indexed again.
+
 ## Updating from 0.4.0
 
 Version 0.4.1 supports the game's version 21 models in previews, exports and library metadata. Version 20 remains supported. After updating, run **Scan library** to refresh model metadata and remove references to packages replaced by the game update. Keep the new executable with its accompanying `_internal` folder.

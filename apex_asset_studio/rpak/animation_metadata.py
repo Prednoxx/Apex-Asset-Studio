@@ -10,7 +10,7 @@ def decode_animation_header(reader,asset):
     if asset.type_name == 'arig' and asset.header_struct_size == 40 and asset.version in (4,5,6,7):
         count = struct.unpack_from('<i' if asset.version == 4 else '<h',data,p+(20 if asset.version==4 else 18))[0]
         pointer = p+24; key = 'declared_sequences'
-    elif asset.type_name == 'aseq' and asset.header_struct_size == 64 and 8 <= asset.version <= 14:
+    elif asset.type_name == 'aseq' and asset.header_struct_size == 64 and (8 <= asset.version <= 14 or asset.version == 16):
         count = struct.unpack_from('<H',data,p+24)[0]
         pointer = p+32; key = 'declared_models'
     else: raise ValueError(f'animation header {asset.type_name}/{asset.version}/{asset.header_struct_size} unsupported')
